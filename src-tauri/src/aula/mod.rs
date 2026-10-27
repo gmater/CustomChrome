@@ -19,6 +19,8 @@ pub enum Error {
     UnexpectedInterface(&'static str),
     #[error("The keyboard did not reply in time.")]
     Timeout,
+    #[error("The keyboard didn't store the change correctly. Try again.")]
+    WriteNotVerified,
     #[error("The keyboard did not report how many screen frames it can store.")]
     UnknownFrameLimit,
     #[error("Invalid image data: {0}")]

@@ -19,6 +19,7 @@ pub const SCREEN_HEADER_LEN: usize = 256;
 pub const MAX_HEADER_FRAMES: usize = SCREEN_HEADER_LEN - 1;
 
 const PACKET_MAGIC: u8 = 0xAA;
+const REPLY_MAGIC: u8 = 0x55;
 pub const CMD_DEVICE_INFO: u8 = 0x10;
 pub const CMD_READ_LIGHTING: u8 = 0x13;
 pub const CMD_WRITE_LIGHTING: u8 = 0x23;
@@ -110,6 +111,11 @@ pub fn merge_reply(reply: &[u8], target: &mut [u8]) {
     }
 }
 
+/// True when `reply` is the keyboard's answer to this exact chunk: same command and offset.
+pub fn acknowledges(request: &[u8], reply: &[u8]) -> bool {
+    reply.len() > 4 && reply[0] == REPLY_MAGIC && reply[1] == request[1] && reply[3..5] == request[3..5]
+}
+
 /// Splits a table transfer exactly like the official app: full-size chunks, with only a
 /// non-first final chunk shortened to the remainder.
 pub fn chunked_requests(cmd: u8, packet_len: usize, table: &[u8]) -> Vec<Vec<u8>> {
@@ -167,6 +173,14 @@ pub fn is_remappable(index: u8) -> bool {
 }
 
 const MOUSE_BUTTONS: [u8; 5] = [1, 2, 4, 8, 16];
+
+/// Stores modifiers the way the factory table does, as plain key codes.
+pub fn canonical_entry(e: KeyEntry) -> KeyEntry {
+    match e {
+        [2, modifier @ 0xE0..=0xE7, 0, 0] => [2, 0, modifier, 0],
+        other => other,
+    }
+}
 
 /// Accepts only the assignment kinds CustomChrome offers: keys, modifiers, media and mouse.
 pub fn is_valid_entry(e: &KeyEntry) -> bool {
@@ -596,6 +610,23 @@ mod tests {
         assert_eq!(&table[33 * 4..34 * 4], &[6, 0, 0, 0]);
         assert_eq!(&table[34 * 4..35 * 4], &factory_entry(34).unwrap());
         assert_eq!(&table[35 * 4..36 * 4], &[6, 1, 2, 0]);
+    }
+
+    #[test]
+    fn chunk_acks_must_echo_command_and_offset() {
+        let chunks = chunked_requests(CMD_WRITE_KEYS, 32, &[0u8; KEY_TABLE_LEN]);
+        let last = &chunks[21];
+        assert!(acknowledges(last, &[0x55, 0x22, 0x08, 0xF8, 0x01, 0, 0, 0]));
+        assert!(!acknowledges(last, &[0x55, 0x22, 0x18, 0xE0, 0x01, 0, 0, 0]));
+        assert!(!acknowledges(last, &[0x55, 0x25, 0x08, 0xF8, 0x01, 0, 0, 0]));
+        assert!(!acknowledges(last, &[0x55, 0x37, 0, 0, 0, 0, 0, 0]));
+    }
+
+    #[test]
+    fn modifiers_are_stored_as_plain_keys() {
+        assert_eq!(canonical_entry([2, 0xE0, 0, 0]), [2, 0, 0xE0, 0]);
+        assert_eq!(canonical_entry([2, 0, 0x04, 0]), [2, 0, 0x04, 0]);
+        assert_eq!(canonical_entry([6, 0, 1, 3]), [6, 0, 1, 3]);
     }
 
     #[test]

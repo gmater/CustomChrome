@@ -1,4 +1,4 @@
-mod aula;
+pub mod aula;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};

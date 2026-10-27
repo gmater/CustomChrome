@@ -48,6 +48,10 @@ pub struct KeyboardSummary {
 
 const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 const READ_SLICE_MS: i32 = 250;
+const CHUNK_TIMEOUT: Duration = Duration::from_millis(1500);
+const CHUNK_ATTEMPTS: usize = 4;
+const AREA_ATTEMPTS: usize = 3;
+const SETTLE: Duration = Duration::from_millis(150);
 
 /// Prefers the cable when both the cable and the dongle are plugged in.
 fn find(api: &HidApi) -> Option<(Connection, String)> {
@@ -135,8 +139,12 @@ fn write_report(device: &HidDevice, payload: &[u8]) -> Result<()> {
     Ok(())
 }
 
-fn wait_for(device: &HidDevice, mut accept: impl FnMut(&[u8]) -> bool) -> Result<Vec<u8>> {
-    let deadline = Instant::now() + REPLY_TIMEOUT;
+fn wait_for(device: &HidDevice, accept: impl FnMut(&[u8]) -> bool) -> Result<Vec<u8>> {
+    wait_within(device, REPLY_TIMEOUT, accept)
+}
+
+fn wait_within(device: &HidDevice, timeout: Duration, mut accept: impl FnMut(&[u8]) -> bool) -> Result<Vec<u8>> {
+    let deadline = Instant::now() + timeout;
     let mut buf = vec![0u8; 8192];
     while Instant::now() < deadline {
         let n = device.read_timeout(&mut buf, READ_SLICE_MS)?;
@@ -183,24 +191,50 @@ impl Control {
 }
 
 impl Control {
+    /// Sends one chunk and waits for the reply that echoes its command and offset, resending it
+    /// when the keyboard misses it. Chunks are idempotent, so a resend is always safe.
+    fn send_chunk(&self, packet: &[u8]) -> Result<Vec<u8>> {
+        for _ in 0..CHUNK_ATTEMPTS {
+            write_report(&self.device, packet)?;
+            match wait_within(&self.device, CHUNK_TIMEOUT, |r| protocol::acknowledges(packet, r)) {
+                Err(Error::Timeout) => continue,
+                other => return other,
+            }
+        }
+        Err(Error::Timeout)
+    }
+
     fn read_area(&self, cmd: u8, len: usize) -> Result<Vec<u8>> {
         let mut area = vec![0u8; len];
         self.drain()?;
         for packet in protocol::chunked_requests(cmd, self.packet_len, &area.clone()) {
-            write_report(&self.device, &packet)?;
-            let reply = wait_for(&self.device, |r| protocol::is_reply_to(cmd, r))?;
+            let reply = self.send_chunk(&packet)?;
             protocol::merge_reply(&reply, &mut area);
         }
         Ok(area)
     }
 
-    fn write_area(&self, cmd: u8, area: &[u8]) -> Result<()> {
+    /// The keyboard wipes a table when its first chunk arrives, so a transfer that stops part way
+    /// leaves keys dead. Every chunk must be acknowledged, and the table is read back to confirm.
+    fn write_area(&self, cmd: u8, read_cmd: u8, area: &[u8]) -> Result<()> {
+        std::thread::sleep(SETTLE);
         self.drain()?;
-        for packet in protocol::chunked_requests(cmd, self.packet_len, area) {
-            write_report(&self.device, &packet)?;
-            wait_for(&self.device, |r| r.len() > 1 && r[1] != protocol::CMD_STATUS)?;
+        let mut result = Ok(());
+        for _ in 0..AREA_ATTEMPTS {
+            result = protocol::chunked_requests(cmd, self.packet_len, area)
+                .iter()
+                .try_for_each(|packet| self.send_chunk(packet).map(drop));
+            if result.is_ok() {
+                std::thread::sleep(SETTLE);
+                if self.read_area(read_cmd, area.len())? == area {
+                    return Ok(());
+                }
+                result = Err(Error::WriteNotVerified);
+            }
+            std::thread::sleep(SETTLE);
+            self.drain()?;
         }
-        Ok(())
+        result
     }
 
     fn read_key_table(&self) -> Result<Vec<u8>> {
@@ -208,7 +242,7 @@ impl Control {
     }
 
     fn write_key_table(&self, table: &[u8]) -> Result<()> {
-        self.write_area(protocol::CMD_WRITE_KEYS, table)
+        self.write_area(protocol::CMD_WRITE_KEYS, protocol::CMD_READ_KEYS, table)
     }
 
     fn read_macros(&self) -> Result<Vec<Macro>> {
@@ -217,7 +251,7 @@ impl Control {
 
     fn write_macros(&self, macros: &[Macro]) -> Result<()> {
         let area = protocol::encode_macros(macros).ok_or(Error::InvalidMacro)?;
-        self.write_area(protocol::CMD_WRITE_MACROS, &area)
+        self.write_area(protocol::CMD_WRITE_MACROS, protocol::CMD_READ_MACROS, &area)
     }
 }
 
@@ -283,7 +317,7 @@ pub fn assign_key(index: u8, entry: Option<KeyEntry>) -> Result<Vec<KeyEntry>> {
         return Err(Error::InvalidKey);
     }
     let entry = match entry {
-        Some(e) if protocol::is_valid_entry(&e) => e,
+        Some(e) if protocol::is_valid_entry(&e) => protocol::canonical_entry(e),
         Some(_) => return Err(Error::InvalidKey),
         None => protocol::factory_entry(index).ok_or(Error::InvalidKey)?,
     };
