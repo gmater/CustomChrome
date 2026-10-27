@@ -551,6 +551,61 @@ input[type="range"] {
   accent-color: var(--accent);
 }
 
+.wheel-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 6px 0 4px;
+  transition: opacity 0.15s;
+}
+
+.wheel-wrap.dimmed {
+  opacity: 0.45;
+}
+
+.color-wheel {
+  position: relative;
+  border-radius: 50%;
+  background: radial-gradient(circle closest-side, #fff, rgba(255, 255, 255, 0)),
+    conic-gradient(#f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  box-shadow: 0 0 0 1px var(--line), 0 12px 30px -14px #000;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.color-wheel-marker {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.color-chip {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.hex-input {
+  width: 100px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  text-transform: uppercase;
+  outline: none;
+}
+
+.hex-input:focus {
+  border-color: var(--accent);
+}
+
 .segmented.two {
   grid-template-columns: repeat(2, 1fr);
 }

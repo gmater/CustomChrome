@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import ColorWheel from "../components/ColorWheel";
 import { EFFECT_OFF, EFFECTS, fromHex, LEVEL_MAX, SWATCHES, toHex } from "../lib/effects";
 import { errorText, readLighting, writeLighting, type KeyboardSummary, type Lighting } from "../lib/keyboard";
 
@@ -160,6 +161,9 @@ export default function LightingStudio({ keyboard }: Props) {
           {effect?.usesColor && (
             <div className="field">
               <label>Colour</label>
+              <div className={`wheel-wrap ${lighting.rainbow ? "dimmed" : ""}`}>
+                <ColorWheel value={lighting.color} onChange={(color) => update({ color, rainbow: false })} />
+              </div>
               <div className="swatches">
                 {SWATCHES.map((s) => (
                   <button
@@ -172,8 +176,18 @@ export default function LightingStudio({ keyboard }: Props) {
                 ))}
               </div>
               <div className="color-row">
-                <input type="color" value={hex} onChange={(e) => update({ color: fromHex(e.target.value), rainbow: false })} />
-                <span>{hex}</span>
+                <span className="color-chip" style={{ background: hex }} />
+                <input
+                  key={hex}
+                  className="hex-input"
+                  defaultValue={hex}
+                  maxLength={7}
+                  spellCheck={false}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    if (/^#?[0-9a-fA-F]{6}$/.test(v)) update({ color: fromHex(v.startsWith("#") ? v : `#${v}`), rainbow: false });
+                  }}
+                />
               </div>
               <label className="check">
                 <input type="checkbox" checked={lighting.rainbow} onChange={(e) => update({ rainbow: e.target.checked })} />
