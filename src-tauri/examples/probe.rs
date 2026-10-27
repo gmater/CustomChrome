@@ -17,7 +17,7 @@ fn main() {
     let n = dev.get_report_descriptor(&mut desc).expect("descriptor");
     println!("descriptor {:02X?}", &desc[..n]);
 
-    for cmd in [0x10u8, 0x13] {
+    for cmd in [0x10u8, 0x13, 0x1B] {
         let mut stale = [0u8; 8192];
         while dev.read_timeout(&mut stale, 0).unwrap_or(0) > 0 {}
         let len = 32;

@@ -10,6 +10,17 @@ interface Props {
 type Save = "idle" | "saving" | "saved" | { error: string };
 
 const WRITE_DELAY_MS = 250;
+/** The firmware applies colour writes but reads back stale colour bytes, so the last colour sent is kept here. */
+const COLOR_KEY = "lighting-color";
+
+function rememberedColor(): Pick<Lighting, "color" | "rainbow"> | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COLOR_KEY) ?? "null");
+    return Array.isArray(saved?.color) && saved.color.length === 3 && typeof saved.rainbow === "boolean" ? saved : null;
+  } catch {
+    return null;
+  }
+}
 
 export default function LightingStudio({ keyboard }: Props) {
   const [lighting, setLighting] = useState<Lighting | null>(null);
@@ -31,8 +42,9 @@ export default function LightingStudio({ keyboard }: Props) {
     if (!keyboardKey) return;
     let alive = true;
     readLighting()
-      .then((l) => {
+      .then((read) => {
         if (!alive) return;
+        const l = { ...read, ...rememberedColor() };
         if (l.effect !== EFFECT_OFF) lastEffect.current = l.effect;
         latest.current = l;
         setLighting(l);
@@ -55,7 +67,9 @@ export default function LightingStudio({ keyboard }: Props) {
     try {
       do {
         dirty.current = false;
-        await writeLighting(latest.current!);
+        const sent = latest.current!;
+        await writeLighting(sent);
+        localStorage.setItem(COLOR_KEY, JSON.stringify({ color: sent.color, rainbow: sent.rainbow }));
       } while (dirty.current);
       setSave("saved");
     } catch (err) {
