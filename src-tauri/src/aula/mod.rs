@@ -13,6 +13,8 @@ pub enum Error {
     UnsupportedEffect,
     #[error("That key or assignment can't be changed.")]
     InvalidKey,
+    #[error("That macro is empty, has an invalid step, or doesn't fit in the keyboard's macro memory.")]
+    InvalidMacro,
     #[error("The keyboard's {0} interface is missing or not what CustomChrome expects.")]
     UnexpectedInterface(&'static str),
     #[error("The keyboard did not reply in time.")]

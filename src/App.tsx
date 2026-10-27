@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { detectKeyboard, keyboardInfo, type KeyboardInfo, type KeyboardSummary } from "./lib/keyboard";
 import KeysStudio from "./pages/KeysStudio";
 import LightingStudio from "./pages/LightingStudio";
+import MacrosStudio from "./pages/MacrosStudio";
 import ScreenStudio from "./pages/ScreenStudio";
 
 type Page = "screen" | "lighting" | "keys" | "macros";
@@ -10,7 +11,7 @@ const NAV: { id: Page; label: string; ready: boolean; icon: string }[] = [
   { id: "screen", label: "Screen", ready: true, icon: "M3 5h18v12H3zM8 21h8M12 17v4" },
   { id: "lighting", label: "Lighting", ready: true, icon: "M12 3v2M5.6 5.6l1.4 1.4M3 12h2M12 8a4 4 0 0 1 2 7.5V18h-4v-2.5A4 4 0 0 1 12 8zM10 21h4" },
   { id: "keys", label: "Keys", ready: true, icon: "M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8" },
-  { id: "macros", label: "Macros", ready: false, icon: "M5 4l14 8-14 8z" },
+  { id: "macros", label: "Macros", ready: true, icon: "M5 4l14 8-14 8z" },
 ];
 
 function Icon({ d }: { d: string }) {
@@ -96,6 +97,8 @@ export default function App() {
           <LightingStudio keyboard={keyboard} />
         ) : page === "keys" ? (
           <KeysStudio keyboard={keyboard} />
+        ) : page === "macros" ? (
+          <MacrosStudio keyboard={keyboard} />
         ) : (
           <section className="placeholder">
             <Icon d={current.icon} />

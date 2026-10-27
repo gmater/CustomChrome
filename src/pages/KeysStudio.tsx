@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { describe, GROUPS, sameEntry, type KeyEntry } from "../lib/keycodes";
-import { assignKey, errorText, factoryKeys, readKeys, resetKeys, type KeyboardSummary } from "../lib/keyboard";
+import { describe, GROUPS, macroEntry, macroName, MACRO_MODES, sameEntry, type Assignable, type KeyEntry } from "../lib/keycodes";
+import { assignKey, errorText, factoryKeys, loadMacroNames, readMacros, resetKeys, type KeyboardSummary } from "../lib/keyboard";
 import { FN_INDEX, KEYBOARD_UNITS_H, KEYBOARD_UNITS_W, KEYS, SCREEN, STRIP } from "../lib/layout";
 
 interface Props {
@@ -20,6 +20,10 @@ export default function KeysStudio({ keyboard }: Props) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [confirmReset, setConfirmReset] = useState(false);
+  const [macroCount, setMacroCount] = useState(0);
+  const [macroMode, setMacroMode] = useState(0);
+  const [repeats, setRepeats] = useState(3);
+  const macroNames = useMemo(loadMacroNames, [keyboard]);
 
   const keyboardKey = keyboard?.supported ? `${keyboard.connection}:${keyboard.name}` : "";
 
@@ -29,11 +33,12 @@ export default function KeysStudio({ keyboard }: Props) {
     setStatus("idle");
     if (!keyboardKey) return;
     let alive = true;
-    Promise.all([readKeys(), factoryKeys()])
-      .then(([table, defaults]) => {
+    Promise.all([readMacros(), factoryKeys()])
+      .then(([state, defaults]) => {
         if (!alive) return;
         setFactory(new Map(defaults));
-        setEntries(table);
+        setMacroCount(state.macros.length);
+        setEntries(state.keys);
       })
       .catch((err) => alive && setLoadError(errorText(err)));
     return () => {
@@ -58,11 +63,18 @@ export default function KeysStudio({ keyboard }: Props) {
 
   const remappedCount = useMemo(() => KEYS.filter((k) => k.index !== FN_INDEX && isRemapped(k.index)).length, [entries, factory]);
 
+  const macroItems: Assignable[] = useMemo(
+    () => Array.from({ length: macroCount }, (_, i) => ({ label: macroName(macroNames, i), entry: macroEntry(i, macroMode, repeats) })),
+    [macroCount, macroNames, macroMode, repeats],
+  );
+  const groups = useMemo(() => [...GROUPS, { name: "Macros", items: macroItems }], [macroItems]);
+  const showingMacros = !query.trim() && group === "Macros";
+
   const options = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return GROUPS.find((g) => g.name === group)!.items;
-    return GROUPS.flatMap((g) => g.items).filter((a) => a.label.toLowerCase().includes(q));
-  }, [group, query]);
+    if (!q) return groups.find((g) => g.name === group)!.items;
+    return groups.flatMap((g) => g.items).filter((a) => a.label.toLowerCase().includes(q));
+  }, [group, query, groups]);
 
   const header = (
     <header className="page-header">
@@ -134,7 +146,7 @@ export default function KeysStudio({ keyboard }: Props) {
                 >
                   <span className="cap">
                     <span className="legend">{k.label}</span>
-                    {remapped && <span className="remap-label">{describe(entries[k.index])}</span>}
+                    {remapped && <span className="remap-label">{describe(entries[k.index], macroNames)}</span>}
                   </span>
                 </button>
               );
@@ -152,7 +164,7 @@ export default function KeysStudio({ keyboard }: Props) {
           </div>
         </div>
         <div className="hero-foot">
-          <span className="hero-effect">{selectedKey ? `${selectedKey.label || "Space"} → ${describe(current!)}` : "Select a key"}</span>
+          <span className="hero-effect">{selectedKey ? `${selectedKey.label || "Space"} → ${describe(current!, macroNames)}` : "Select a key"}</span>
           <span className={`save-pill ${typeof status === "object" ? "err" : status}`}>
             <i />
             {statusText}
@@ -173,13 +185,37 @@ export default function KeysStudio({ keyboard }: Props) {
           </div>
           {!query && (
             <div className="chips">
-              {GROUPS.map((g) => (
+              {groups.map((g) => (
                 <button key={g.name} className={group === g.name ? "on" : ""} onClick={() => setGroup(g.name)}>
                   {g.name}
                 </button>
               ))}
             </div>
           )}
+          {showingMacros && macroCount > 0 && (
+            <div className="macro-mode">
+              <div className="pills">
+                {MACRO_MODES.map((m) => (
+                  <button key={m.mode} className={macroMode === m.mode ? "on" : ""} onClick={() => setMacroMode(m.mode)}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+              {macroMode === 1 && (
+                <label className="delay-field">
+                  <input
+                    type="number"
+                    min={1}
+                    max={255}
+                    value={repeats}
+                    onChange={(e) => setRepeats(Math.max(1, Math.min(255, Math.round(Number(e.target.value)) || 1)))}
+                  />
+                  times
+                </label>
+              )}
+            </div>
+          )}
+          {showingMacros && macroCount === 0 && <p className="empty">No macros on the keyboard yet. Record one on the Macros page.</p>}
           <div className="option-grid">
             {options.map((a) => (
               <button
@@ -191,7 +227,7 @@ export default function KeysStudio({ keyboard }: Props) {
                 {a.label}
               </button>
             ))}
-            {options.length === 0 && <p className="empty">Nothing matches “{query}”.</p>}
+            {options.length === 0 && query && <p className="empty">Nothing matches “{query}”.</p>}
           </div>
         </div>
 
@@ -203,11 +239,11 @@ export default function KeysStudio({ keyboard }: Props) {
                 <div className="key-big">{selectedKey.label || "Space"}</div>
                 <div className="key-row">
                   <span>Does</span>
-                  <b>{describe(current!)}</b>
+                  <b>{describe(current!, macroNames)}</b>
                 </div>
                 <div className="key-row">
                   <span>Factory</span>
-                  <b>{describe(factory.get(selectedKey.index)!)}</b>
+                  <b>{describe(factory.get(selectedKey.index)!, macroNames)}</b>
                 </div>
                 <button
                   className="ghost wide"

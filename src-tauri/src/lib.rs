@@ -67,6 +67,26 @@ async fn assign_key(app: AppHandle, index: u8, entry: Option<KeyEntry>) -> Resul
 }
 
 #[tauri::command]
+async fn read_macros(app: AppHandle) -> Result<device::MacroState, Error> {
+    exclusive(app, |_| device::read_macros()).await
+}
+
+#[tauri::command]
+async fn save_macro(app: AppHandle, index: usize, events: aula::protocol::Macro) -> Result<device::MacroState, Error> {
+    exclusive(app, move |_| device::save_macro(index, events)).await
+}
+
+#[tauri::command]
+async fn delete_macro(app: AppHandle, index: usize) -> Result<device::MacroState, Error> {
+    exclusive(app, move |_| device::delete_macro(index)).await
+}
+
+#[tauri::command]
+fn macro_capacity() -> usize {
+    aula::protocol::MACRO_WORDS
+}
+
+#[tauri::command]
 fn factory_keys() -> Vec<(u8, KeyEntry)> {
     aula::protocol::F99_KEYS
         .iter()
@@ -113,6 +133,10 @@ pub fn run() {
             write_lighting,
             read_keys,
             factory_keys,
+            read_macros,
+            save_macro,
+            delete_macro,
+            macro_capacity,
             assign_key,
             reset_keys,
             upload_screen

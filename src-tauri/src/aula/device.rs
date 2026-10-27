@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use hidapi::{DeviceInfo, HidApi, HidDevice};
 use serde::Serialize;
 
-use super::protocol::{self, KeyEntry, KeyboardInfo, Lighting, LIGHTING_LEN};
+use super::protocol::{self, KeyEntry, KeyboardInfo, Lighting, Macro, LIGHTING_LEN};
 use super::{Error, Result};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
@@ -183,25 +183,88 @@ impl Control {
 }
 
 impl Control {
-    fn read_key_table(&self) -> Result<Vec<u8>> {
-        let mut table = vec![0u8; protocol::KEY_TABLE_LEN];
+    fn read_area(&self, cmd: u8, len: usize) -> Result<Vec<u8>> {
+        let mut area = vec![0u8; len];
         self.drain()?;
-        for packet in protocol::chunked_requests(protocol::CMD_READ_KEYS, self.packet_len, &table.clone()) {
+        for packet in protocol::chunked_requests(cmd, self.packet_len, &area.clone()) {
             write_report(&self.device, &packet)?;
-            let reply = wait_for(&self.device, |r| protocol::is_reply_to(protocol::CMD_READ_KEYS, r))?;
-            protocol::merge_reply(&reply, &mut table);
+            let reply = wait_for(&self.device, |r| protocol::is_reply_to(cmd, r))?;
+            protocol::merge_reply(&reply, &mut area);
         }
-        Ok(table)
+        Ok(area)
     }
 
-    fn write_key_table(&self, table: &[u8]) -> Result<()> {
+    fn write_area(&self, cmd: u8, area: &[u8]) -> Result<()> {
         self.drain()?;
-        for packet in protocol::chunked_requests(protocol::CMD_WRITE_KEYS, self.packet_len, table) {
+        for packet in protocol::chunked_requests(cmd, self.packet_len, area) {
             write_report(&self.device, &packet)?;
             wait_for(&self.device, |r| r.len() > 1 && r[1] != protocol::CMD_STATUS)?;
         }
         Ok(())
     }
+
+    fn read_key_table(&self) -> Result<Vec<u8>> {
+        self.read_area(protocol::CMD_READ_KEYS, protocol::KEY_TABLE_LEN)
+    }
+
+    fn write_key_table(&self, table: &[u8]) -> Result<()> {
+        self.write_area(protocol::CMD_WRITE_KEYS, table)
+    }
+
+    fn read_macros(&self) -> Result<Vec<Macro>> {
+        Ok(protocol::decode_macros(&self.read_area(protocol::CMD_READ_MACROS, protocol::MACRO_AREA_LEN)?))
+    }
+
+    fn write_macros(&self, macros: &[Macro]) -> Result<()> {
+        let area = protocol::encode_macros(macros).ok_or(Error::InvalidMacro)?;
+        self.write_area(protocol::CMD_WRITE_MACROS, &area)
+    }
+}
+
+#[derive(Serialize)]
+pub struct MacroState {
+    pub macros: Vec<Macro>,
+    pub keys: Vec<KeyEntry>,
+}
+
+pub fn read_macros() -> Result<MacroState> {
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let macros = control.read_macros()?;
+    Ok(MacroState { macros, keys: key_entries(&control.read_key_table()?) })
+}
+
+/// Replaces macro `index`, or appends a new one when `index` equals the macro count.
+pub fn save_macro(index: usize, events: Macro) -> Result<MacroState> {
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let mut macros = control.read_macros()?;
+    match index.cmp(&macros.len()) {
+        std::cmp::Ordering::Less => macros[index] = events,
+        std::cmp::Ordering::Equal => macros.push(events),
+        std::cmp::Ordering::Greater => return Err(Error::InvalidMacro),
+    }
+    control.write_macros(&macros)?;
+    Ok(MacroState { macros, keys: key_entries(&control.read_key_table()?) })
+}
+
+/// Deletes a macro, restoring keys that played it and renumbering keys bound to later macros.
+pub fn delete_macro(index: usize) -> Result<MacroState> {
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let mut macros = control.read_macros()?;
+    if index >= macros.len() {
+        return Err(Error::InvalidMacro);
+    }
+    macros.remove(index);
+    let mut table = control.read_key_table()?;
+    let before = table.clone();
+    protocol::shift_macro_refs(&mut table, index as u8);
+    if table != before {
+        control.write_key_table(&table)?;
+    }
+    control.write_macros(&macros)?;
+    Ok(MacroState { macros, keys: key_entries(&table) })
 }
 
 fn key_entries(table: &[u8]) -> Vec<KeyEntry> {
@@ -226,6 +289,9 @@ pub fn assign_key(index: u8, entry: Option<KeyEntry>) -> Result<Vec<KeyEntry>> {
     };
     let api = HidApi::new()?;
     let control = open_control(&api, connected(&api)?)?;
+    if entry[0] == protocol::MACRO_KIND && entry[1] as usize >= control.read_macros()?.len() {
+        return Err(Error::InvalidMacro);
+    }
     let mut table = control.read_key_table()?;
     let at = index as usize * 4;
     table[at..at + 4].copy_from_slice(&entry);

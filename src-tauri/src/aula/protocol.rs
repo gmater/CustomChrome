@@ -176,7 +176,115 @@ pub fn is_valid_entry(e: &KeyEntry) -> bool {
         [3, lo, hi, 0] => u16::from_le_bytes([lo, hi]) != 0,
         [1, 1, button, 0] => MOUSE_BUTTONS.contains(&button),
         [1, 3, 1 | 255, 0] => true,
+        [MACRO_KIND, index, mode, repeats] => {
+            (index as usize) < MACRO_COUNT_MAX && MACRO_MODES.contains(&mode) && (mode == 1) == (repeats > 0)
+        }
         _ => false,
+    }
+}
+
+pub const CMD_READ_MACROS: u8 = 0x15;
+pub const CMD_WRITE_MACROS: u8 = 0x25;
+pub const MACRO_AREA_LEN: usize = 1024;
+const MACRO_INDEX_LEN: usize = 400;
+pub const MACRO_COUNT_MAX: usize = MACRO_INDEX_LEN / 4;
+/// 4-byte words left after the index table; each macro takes one for its header plus one per event.
+pub const MACRO_WORDS: usize = (MACRO_AREA_LEN - MACRO_INDEX_LEN) / 4;
+
+const EVENT_DOWN: u8 = 0x80;
+const EVENT_KEYBOARD: u8 = 0x20;
+const EVENT_BASE: u8 = 0x10;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacroEvent {
+    pub code: u8,
+    pub down: bool,
+    pub mouse: bool,
+    /// Milliseconds to wait after this event.
+    pub delay: u16,
+}
+
+pub type Macro = Vec<MacroEvent>;
+
+pub fn macro_words(macros: &[Macro]) -> usize {
+    macros.iter().map(|m| 1 + m.len()).sum()
+}
+
+pub fn is_valid_macro_event(e: &MacroEvent) -> bool {
+    if e.mouse {
+        matches!(e.code, 1 | 2 | 4)
+    } else {
+        (0x04..=0xA4).contains(&e.code) || (0xE0..=0xE7).contains(&e.code)
+    }
+}
+
+/// Lays macros out like the official app: an index of little-endian addresses, then each
+/// macro as `[2 × event count, 0, 0]` followed by `[delay lo, delay hi, code, flags]` events.
+pub fn encode_macros(macros: &[Macro]) -> Option<Vec<u8>> {
+    if macros.len() > MACRO_COUNT_MAX
+        || macro_words(macros) > MACRO_WORDS
+        || macros.iter().any(|m| m.is_empty() || !m.iter().all(is_valid_macro_event))
+    {
+        return None;
+    }
+    let mut area = vec![0u8; MACRO_AREA_LEN];
+    let mut addr = MACRO_INDEX_LEN;
+    for (i, events) in macros.iter().enumerate() {
+        area[i * 4..i * 4 + 4].copy_from_slice(&(addr as u32).to_le_bytes());
+        area[addr..addr + 2].copy_from_slice(&((events.len() * 2) as u16).to_le_bytes());
+        for (j, e) in events.iter().enumerate() {
+            let at = addr + 4 + j * 4;
+            let flags = EVENT_BASE | if e.down { EVENT_DOWN } else { 0 } | if e.mouse { 0 } else { EVENT_KEYBOARD };
+            area[at..at + 2].copy_from_slice(&e.delay.to_le_bytes());
+            area[at + 2] = e.code;
+            area[at + 3] = flags;
+        }
+        addr += 4 + events.len() * 4;
+    }
+    Some(area)
+}
+
+pub fn decode_macros(area: &[u8]) -> Vec<Macro> {
+    let word = |at: usize| area.get(at..at + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as usize);
+    let mut macros = Vec::new();
+    for i in 0..MACRO_COUNT_MAX {
+        let addr = match word(i * 4) {
+            Some(0) | None => break,
+            Some(a) => a,
+        };
+        let Some(header) = area.get(addr..addr + 2) else { break };
+        let count = u16::from_le_bytes([header[0], header[1]]) as usize / 2;
+        let events = (0..count)
+            .map_while(|j| area.get(addr + 4 + j * 4..addr + 8 + j * 4))
+            .map(|b| MacroEvent {
+                delay: u16::from_le_bytes([b[0], b[1]]),
+                code: b[2],
+                down: b[3] & EVENT_DOWN != 0,
+                mouse: b[3] & EVENT_KEYBOARD == 0,
+            })
+            .collect();
+        macros.push(events);
+    }
+    macros
+}
+
+pub const MACRO_KIND: u8 = 6;
+pub const MACRO_MODES: [u8; 3] = [0, 1, 2];
+
+/// Rewrites macro assignments after macro `removed` is deleted: its keys go back to factory
+/// and keys bound to later macros follow them down one slot.
+pub fn shift_macro_refs(table: &mut [u8], removed: u8) {
+    for (index, entry) in table.chunks_exact_mut(4).enumerate() {
+        if entry[0] != MACRO_KIND {
+            continue;
+        }
+        if entry[1] == removed {
+            let restored = factory_entry(index as u8).unwrap_or([0; 4]);
+            entry.copy_from_slice(&restored);
+        } else if entry[1] > removed {
+            entry[1] -= 1;
+        }
     }
 }
 
@@ -448,5 +556,55 @@ mod tests {
             0x06, 0x67, 0xFF, 0x09, 0x01, 0xA1, 0x01, 0x75, 0x08, 0x96, 0x08, 0x10, 0x91, 0x02, 0xC0,
         ];
         assert_eq!(output_report_len(&descriptor), Some(4104));
+    }
+
+    fn tap(code: u8, mouse: bool) -> [MacroEvent; 2] {
+        [
+            MacroEvent { code, down: true, mouse, delay: 10 },
+            MacroEvent { code, down: false, mouse, delay: 300 },
+        ]
+    }
+
+    #[test]
+    fn macros_encode_like_official_app() {
+        let macros = vec![tap(0x04, false).to_vec(), tap(1, true).to_vec()];
+        let area = encode_macros(&macros).unwrap();
+        assert_eq!(area.len(), MACRO_AREA_LEN);
+        assert_eq!(&area[0..8], &[0x90, 1, 0, 0, 0x9C, 1, 0, 0]);
+        assert_eq!(&area[400..412], &[4, 0, 0, 0, 10, 0, 0x04, 0xB0, 0x2C, 1, 0x04, 0x30]);
+        assert_eq!(&area[412..424], &[4, 0, 0, 0, 10, 0, 1, 0x90, 0x2C, 1, 1, 0x10]);
+        assert!(area[8..400].iter().all(|&b| b == 0));
+        assert_eq!(decode_macros(&area), macros);
+    }
+
+    #[test]
+    fn macros_reject_empty_invalid_or_oversized() {
+        assert!(encode_macros(&[vec![]]).is_none());
+        assert!(encode_macros(&[vec![MacroEvent { code: 3, down: true, mouse: true, delay: 0 }]]).is_none());
+        let full = vec![MacroEvent { code: 0x04, down: true, mouse: false, delay: 0 }; MACRO_WORDS - 1];
+        assert!(encode_macros(&[full.clone()]).is_some());
+        assert!(encode_macros(&[full, vec![tap(0x05, false)[0]]]).is_none());
+    }
+
+    #[test]
+    fn deleting_a_macro_fixes_key_assignments() {
+        let mut table = vec![0u8; KEY_TABLE_LEN];
+        table[33 * 4..34 * 4].copy_from_slice(&[6, 0, 0, 0]);
+        table[34 * 4..35 * 4].copy_from_slice(&[6, 1, 1, 3]);
+        table[35 * 4..36 * 4].copy_from_slice(&[6, 2, 2, 0]);
+        shift_macro_refs(&mut table, 1);
+        assert_eq!(&table[33 * 4..34 * 4], &[6, 0, 0, 0]);
+        assert_eq!(&table[34 * 4..35 * 4], &factory_entry(34).unwrap());
+        assert_eq!(&table[35 * 4..36 * 4], &[6, 1, 2, 0]);
+    }
+
+    #[test]
+    fn macro_assignments_validate_mode_and_repeats() {
+        assert!(is_valid_entry(&[6, 0, 0, 0]));
+        assert!(is_valid_entry(&[6, 4, 1, 5]));
+        assert!(is_valid_entry(&[6, 4, 2, 0]));
+        assert!(!is_valid_entry(&[6, 4, 1, 0]));
+        assert!(!is_valid_entry(&[6, 4, 3, 0]));
+        assert!(!is_valid_entry(&[6, 100, 0, 0]));
     }
 }

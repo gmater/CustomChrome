@@ -32,6 +32,39 @@ export const keyboardInfo = () => invoke<KeyboardInfo>("keyboard_info");
 
 export const readKeys = () => invoke<KeyEntry[]>("read_keys");
 
+export interface MacroEvent {
+  code: number;
+  down: boolean;
+  mouse: boolean;
+  delay: number;
+}
+
+export interface MacroState {
+  macros: MacroEvent[][];
+  keys: KeyEntry[];
+}
+
+export const readMacros = () => invoke<MacroState>("read_macros");
+
+export const saveMacro = (index: number, events: MacroEvent[]) => invoke<MacroState>("save_macro", { index, events });
+
+export const deleteMacro = (index: number) => invoke<MacroState>("delete_macro", { index });
+
+export const macroCapacity = () => invoke<number>("macro_capacity");
+
+const NAMES_KEY = "macro-names";
+
+export const loadMacroNames = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(NAMES_KEY) ?? "[]");
+    return Array.isArray(v) ? v.map(String) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const storeMacroNames = (names: string[]) => localStorage.setItem(NAMES_KEY, JSON.stringify(names));
+
 export const factoryKeys = () => invoke<[number, KeyEntry][]>("factory_keys");
 
 export const assignKey = (index: number, entry: KeyEntry | null) => invoke<KeyEntry[]>("assign_key", { index, entry });
