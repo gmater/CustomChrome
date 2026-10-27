@@ -193,13 +193,6 @@ nav {
   box-shadow: 0 0 10px var(--err);
 }
 
-.offline-note {
-  margin: -14px 8px 0;
-  color: var(--faint);
-  font-size: 11.5px;
-  line-height: 1.45;
-}
-
 .content {
   position: relative;
   overflow: auto;

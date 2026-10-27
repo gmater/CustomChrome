@@ -87,7 +87,6 @@ export default function App() {
             <small>{detail}</small>
           </div>
         </div>
-        <p className="offline-note">Works fully offline. No accounts, no telemetry, no updater.</p>
       </aside>
 
       <main className="content">
