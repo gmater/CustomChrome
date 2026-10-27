@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import ColorWheel from "../components/ColorWheel";
+import KeyboardPreview, { MiniPreview } from "../components/KeyboardPreview";
 import { EFFECT_OFF, EFFECTS, fromHex, LEVEL_MAX, SWATCHES, toHex } from "../lib/effects";
 import { errorText, readLighting, writeLighting, type KeyboardSummary, type Lighting } from "../lib/keyboard";
 
@@ -20,6 +21,23 @@ function rememberedColor(): Pick<Lighting, "color" | "rainbow"> | null {
   } catch {
     return null;
   }
+}
+
+function Levels({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {
+  return (
+    <div className="levels" role="radiogroup" aria-label={label}>
+      {Array.from({ length: LEVEL_MAX }, (_, i) => i + 1).map((v) => (
+        <button
+          key={v}
+          role="radio"
+          aria-checked={value === v}
+          className={v <= value ? "lit" : ""}
+          style={{ height: `${10 + v * 4}px` }}
+          onClick={() => onChange(v)}
+        />
+      ))}
+    </div>
+  );
 }
 
 export default function LightingStudio({ keyboard }: Props) {
@@ -57,6 +75,12 @@ export default function LightingStudio({ keyboard }: Props) {
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  useEffect(() => {
+    if (!lighting) return;
+    const root = document.documentElement.style;
+    root.setProperty("--live", lighting.rainbow ? "#8b7cff" : toHex(lighting.color));
+  }, [lighting]);
+
   const flush = useCallback(async () => {
     if (writing.current) {
       dirty.current = true;
@@ -80,8 +104,9 @@ export default function LightingStudio({ keyboard }: Props) {
   }, []);
 
   const update = (patch: Partial<Lighting>) => {
-    if (!lighting) return;
-    const next = { ...lighting, ...patch };
+    const base = latest.current;
+    if (!base) return;
+    const next = { ...base, ...patch };
     if (next.effect !== EFFECT_OFF) lastEffect.current = next.effect;
     latest.current = next;
     setLighting(next);
@@ -89,66 +114,73 @@ export default function LightingStudio({ keyboard }: Props) {
     timer.current = window.setTimeout(flush, WRITE_DELAY_MS);
   };
 
+  const on = !!lighting && lighting.effect !== EFFECT_OFF;
+
   const header = (
     <header className="page-header">
       <div>
         <h1>Lighting</h1>
-        <p>Pick an effect and colour. Changes are saved to the keyboard as you make them.</p>
+        <p>Changes are saved to the keyboard as you make them.</p>
       </div>
+      {lighting && (
+        <button
+          className={`switch big ${on ? "on" : ""}`}
+          role="switch"
+          aria-checked={on}
+          onClick={() => update({ effect: on ? EFFECT_OFF : lastEffect.current })}
+        >
+          <span />
+          {on ? "Lights on" : "Lights off"}
+        </button>
+      )}
     </header>
   );
 
-  if (!keyboard) {
+  let notice: string | null = null;
+  if (!keyboard) notice = "Connect the keyboard with its USB cable or wireless dongle.";
+  else if (!keyboard.supported) notice = `"${keyboard.name}" isn't an AULA F99 MAX, so CustomChrome won't change its lighting.`;
+  else if (!lighting) notice = loadError ? `Couldn't read the keyboard's lighting: ${loadError}` : "Reading the keyboard's lighting…";
+
+  if (notice || !lighting) {
     return (
       <section className="page">
         {header}
-        <div className="banner">Connect the keyboard with its USB cable or wireless dongle.</div>
-      </section>
-    );
-  }
-  if (!keyboard.supported) {
-    return (
-      <section className="page">
-        {header}
-        <div className="banner warn">"{keyboard.name}" isn't an AULA F99 MAX, so CustomChrome won't change its lighting.</div>
-      </section>
-    );
-  }
-  if (!lighting) {
-    return (
-      <section className="page">
-        {header}
-        {loadError ? (
-          <div className="banner warn">Couldn't read the keyboard's lighting: {loadError}</div>
-        ) : (
-          <div className="banner">Reading the keyboard's lighting…</div>
-        )}
+        <div className={`banner ${loadError || keyboard?.supported === false ? "warn" : ""}`}>{notice}</div>
       </section>
     );
   }
 
-  const on = lighting.effect !== EFFECT_OFF;
   const effect = EFFECTS.find((e) => e.id === (on ? lighting.effect : lastEffect.current));
   const hex = toHex(lighting.color);
+  const saveText =
+    typeof save === "object"
+      ? save.error
+      : save === "saving"
+        ? "Saving…"
+        : save === "saved"
+          ? "Saved to keyboard"
+          : keyboard!.connection === "dongle"
+            ? "Wireless"
+            : "USB cable";
 
   return (
     <section className="page">
       {header}
 
+      <div className="hero card">
+        <KeyboardPreview lighting={lighting} effect={effect} on={on} />
+        <div className="hero-foot">
+          <span className="hero-effect">{on ? (effect?.name ?? "Custom") : "Off"}</span>
+          <span className={`save-pill ${typeof save === "object" ? "err" : save}`}>
+            <i />
+            {saveText}
+          </span>
+        </div>
+      </div>
+
       <div className="lighting">
-        <div className="panel effects-panel">
-          <div className="panel-title">
-            <label>Effect</label>
-            <button
-              className={`switch ${on ? "on" : ""}`}
-              role="switch"
-              aria-checked={on}
-              onClick={() => update({ effect: on ? EFFECT_OFF : lastEffect.current })}
-            >
-              <span />
-              {on ? "On" : "Off"}
-            </button>
-          </div>
+        <div className="card">
+          <div className="card-title">Effects</div>
           <div className={`effect-grid ${on ? "" : "dimmed"}`}>
             {EFFECTS.map((e) => (
               <button
@@ -156,40 +188,43 @@ export default function LightingStudio({ keyboard }: Props) {
                 className={`effect ${effect?.id === e.id ? "on" : ""}`}
                 onClick={() => update({ effect: e.id, direction: e.direction ? lighting.direction : 0 })}
               >
-                <span
-                  className="effect-swatch"
-                  style={{
-                    background:
-                      e.usesColor && !lighting.rainbow
-                        ? hex
-                        : "conic-gradient(#ff4d4d, #ffd24d, #4dff88, #4dd2ff, #9b4dff, #ff4d4d)",
-                  }}
-                />
-                {e.name}
+                <MiniPreview effect={e} lighting={lighting} />
+                <span>{e.name}</span>
               </button>
             ))}
           </div>
         </div>
 
-        <div className="panel">
+        <div className="side">
           {effect?.usesColor && (
-            <div className="field">
-              <label>Colour</label>
-              <div className={`wheel-wrap ${lighting.rainbow ? "dimmed" : ""}`}>
-                <ColorWheel value={lighting.color} onChange={(color) => update({ color, rainbow: false })} />
+            <div className="card">
+              <div className="card-title">
+                Colour
+                <button
+                  className={`switch ${lighting.rainbow ? "on" : ""}`}
+                  role="switch"
+                  aria-checked={lighting.rainbow}
+                  onClick={() => update({ rainbow: !lighting.rainbow })}
+                >
+                  <span />
+                  Rainbow
+                </button>
               </div>
-              <div className="swatches">
+              <div className={`wheel-wrap ${lighting.rainbow ? "dimmed" : ""}`}>
+                <ColorWheel size={210} value={lighting.color} onChange={(color) => update({ color, rainbow: false })} />
+              </div>
+              <div className="orbs">
                 {SWATCHES.map((s) => (
                   <button
                     key={s}
-                    className={`swatch ${!lighting.rainbow && hex === s ? "on" : ""}`}
-                    style={{ background: s }}
+                    className={`orb ${!lighting.rainbow && hex === s ? "on" : ""}`}
+                    style={{ "--orb": s } as CSSProperties}
                     aria-label={s}
                     onClick={() => update({ color: fromHex(s), rainbow: false })}
                   />
                 ))}
               </div>
-              <div className="color-row">
+              <div className="hex-row">
                 <span className="color-chip" style={{ background: hex }} />
                 <input
                   key={hex}
@@ -197,71 +232,44 @@ export default function LightingStudio({ keyboard }: Props) {
                   defaultValue={hex}
                   maxLength={7}
                   spellCheck={false}
+                  aria-label="Hex colour"
                   onChange={(e) => {
                     const v = e.target.value.trim();
                     if (/^#?[0-9a-fA-F]{6}$/.test(v)) update({ color: fromHex(v.startsWith("#") ? v : `#${v}`), rainbow: false });
                   }}
                 />
               </div>
-              <label className="check">
-                <input type="checkbox" checked={lighting.rainbow} onChange={(e) => update({ rainbow: e.target.checked })} />
-                Rainbow colours
-              </label>
             </div>
           )}
 
-          <div className="field">
-            <label>
-              Brightness <b>{lighting.brightness}</b>
-            </label>
-            <input
-              type="range"
-              min={1}
-              max={LEVEL_MAX}
-              value={lighting.brightness}
-              onChange={(e) => update({ brightness: Number(e.target.value) })}
-            />
+          <div className="card">
+            <div className="tune">
+              <span>Brightness</span>
+              <Levels label="Brightness" value={lighting.brightness} onChange={(brightness) => update({ brightness })} />
+            </div>
+            {effect?.hasSpeed && (
+              <div className="tune">
+                <span>Speed</span>
+                <Levels label="Speed" value={lighting.speed} onChange={(speed) => update({ speed })} />
+              </div>
+            )}
+            {effect?.direction && (
+              <div className="tune">
+                <span>Direction</span>
+                <div className="pills">
+                  <button className={lighting.direction === 1 ? "on" : ""} onClick={() => update({ direction: 1 })}>
+                    {effect.direction === "horizontal" ? "← Left" : "↑ Up"}
+                  </button>
+                  <button className={lighting.direction === 0 ? "on" : ""} onClick={() => update({ direction: 0 })}>
+                    {effect.direction === "horizontal" ? "Right →" : "Down ↓"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {effect?.hasSpeed && (
-            <div className="field">
-              <label>
-                Speed <b>{lighting.speed}</b>
-              </label>
-              <input
-                type="range"
-                min={1}
-                max={LEVEL_MAX}
-                value={lighting.speed}
-                onChange={(e) => update({ speed: Number(e.target.value) })}
-              />
-            </div>
-          )}
-
-          {effect?.direction && (
-            <div className="field">
-              <label>Direction</label>
-              <div className="segmented two">
-                <button className={lighting.direction === 1 ? "on" : ""} onClick={() => update({ direction: 1 })}>
-                  {effect.direction === "horizontal" ? "← Left" : "↑ Up"}
-                </button>
-                <button className={lighting.direction === 0 ? "on" : ""} onClick={() => update({ direction: 0 })}>
-                  {effect.direction === "horizontal" ? "Right →" : "Down ↓"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          <p className={`status ${typeof save === "object" ? "err" : save === "saved" ? "ok" : ""}`}>
-            {typeof save === "object"
-              ? save.error
-              : save === "saving"
-                ? "Saving to keyboard…"
-                : save === "saved"
-                  ? "Saved to keyboard."
-                  : keyboard.connection === "dongle"
-                    ? "Connected wirelessly."
-                    : "Connected by cable."}
+          <p className="strip-tip">
+            The light strip by Esc is set on the keyboard: <kbd>Fn</kbd> + <kbd>Right Shift</kbd> changes its effect, <kbd>Fn</kbd> + <kbd>/</kbd> its colour.
           </p>
         </div>
       </div>

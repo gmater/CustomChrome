@@ -14,11 +14,14 @@
     "windows": [
       {
         "title": "CustomChrome",
-        "width": 1180,
-        "height": 760,
+        "width": 1240,
+        "height": 820,
         "minWidth": 960,
         "minHeight": 620,
-        "center": true
+        "center": true,
+        "theme": "Dark",
+        "transparent": true,
+        "windowEffects": { "effects": ["mica"] }
       }
     ],
     "security": {
