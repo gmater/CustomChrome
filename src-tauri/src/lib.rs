@@ -3,7 +3,7 @@ mod aula;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use aula::protocol::{KeyboardInfo, Lighting};
+use aula::protocol::{KeyEntry, KeyboardInfo, Lighting};
 use aula::{device, Error};
 use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Emitter, Manager};
@@ -57,6 +57,29 @@ async fn write_lighting(app: AppHandle, lighting: Lighting) -> Result<Lighting, 
 }
 
 #[tauri::command]
+async fn read_keys(app: AppHandle) -> Result<Vec<KeyEntry>, Error> {
+    exclusive(app, |_| device::read_keys()).await
+}
+
+#[tauri::command]
+async fn assign_key(app: AppHandle, index: u8, entry: Option<KeyEntry>) -> Result<Vec<KeyEntry>, Error> {
+    exclusive(app, move |_| device::assign_key(index, entry)).await
+}
+
+#[tauri::command]
+fn factory_keys() -> Vec<(u8, KeyEntry)> {
+    aula::protocol::F99_KEYS
+        .iter()
+        .filter_map(|&(index, _)| aula::protocol::factory_entry(index).map(|e| (index, e)))
+        .collect()
+}
+
+#[tauri::command]
+async fn reset_keys(app: AppHandle) -> Result<Vec<KeyEntry>, Error> {
+    exclusive(app, |_| device::reset_keys()).await
+}
+
+#[tauri::command]
 async fn upload_screen(app: AppHandle, request: Request<'_>) -> Result<u16, Error> {
     let InvokeBody::Raw(rgba) = request.body() else {
         return Err(Error::InvalidImage("expected raw frame data".into()));
@@ -88,6 +111,10 @@ pub fn run() {
             keyboard_info,
             read_lighting,
             write_lighting,
+            read_keys,
+            factory_keys,
+            assign_key,
+            reset_keys,
             upload_screen
         ])
         .run(tauri::generate_context!())

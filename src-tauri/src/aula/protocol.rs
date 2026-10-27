@@ -110,6 +110,76 @@ pub fn merge_reply(reply: &[u8], target: &mut [u8]) {
     }
 }
 
+/// Splits a table transfer exactly like the official app: full-size chunks, with only a
+/// non-first final chunk shortened to the remainder.
+pub fn chunked_requests(cmd: u8, packet_len: usize, table: &[u8]) -> Vec<Vec<u8>> {
+    let chunk = packet_len - 8;
+    let count = table.len().div_ceil(chunk);
+    (0..count)
+        .map(|i| {
+            let offset = i * chunk;
+            let len = if i == count - 1 && i != 0 && table.len() % chunk != 0 { table.len() % chunk } else { chunk };
+            let mut packet = vec![0; packet_len];
+            packet[0] = PACKET_MAGIC;
+            packet[1] = cmd;
+            packet[2] = len as u8;
+            packet[3..5].copy_from_slice(&(offset as u16).to_le_bytes());
+            let data = &table[offset..(offset + chunk).min(table.len())];
+            packet[8..8 + data.len()].copy_from_slice(data);
+            packet
+        })
+        .collect()
+}
+
+pub const CMD_READ_KEYS: u8 = 0x12;
+pub const CMD_WRITE_KEYS: u8 = 0x22;
+pub const KEY_TABLE_LEN: usize = 512;
+pub const FN_KEY_INDEX: u8 = 85;
+
+pub type KeyEntry = [u8; 4];
+
+/// Physical F99 MAX keys (matrix index, factory HID usage). Fn is listed but never written.
+pub const F99_KEYS: &[(u8, u8)] = &[
+    (0, 0x29), (1, 0x3A), (2, 0x3B), (3, 0x3C), (4, 0x3D), (5, 0x3E), (6, 0x3F), (7, 0x40), (8, 0x41),
+    (9, 0x42), (10, 0x43), (11, 0x44), (12, 0x45), (106, 0x4C),
+    (16, 0x35), (17, 0x1E), (18, 0x1F), (19, 0x20), (20, 0x21), (21, 0x22), (22, 0x23), (23, 0x24),
+    (24, 0x25), (25, 0x26), (26, 0x27), (27, 0x2D), (28, 0x2E), (92, 0x2A), (104, 0x4A),
+    (29, 0x53), (30, 0x54), (31, 0x55), (109, 0x56),
+    (32, 0x2B), (33, 0x14), (34, 0x1A), (35, 0x08), (36, 0x15), (37, 0x17), (38, 0x1C), (39, 0x18),
+    (40, 0x0C), (41, 0x12), (42, 0x13), (43, 0x2F), (44, 0x30), (60, 0x31), (105, 0x4B),
+    (45, 0x5F), (46, 0x60), (47, 0x61), (110, 0x57),
+    (48, 0x39), (49, 0x04), (50, 0x16), (51, 0x07), (52, 0x09), (53, 0x0A), (54, 0x0B), (55, 0x0D),
+    (56, 0x0E), (57, 0x0F), (58, 0x33), (59, 0x34), (76, 0x28), (108, 0x4E),
+    (61, 0x5C), (62, 0x5D), (63, 0x5E),
+    (64, 0xE1), (65, 0x1D), (66, 0x1B), (67, 0x06), (68, 0x19), (69, 0x05), (70, 0x11), (71, 0x10),
+    (72, 0x36), (73, 0x37), (74, 0x38), (75, 0xE5), (90, 0x52),
+    (77, 0x59), (78, 0x5A), (79, 0x5B), (95, 0x58),
+    (80, 0xE0), (81, 0xE3), (82, 0xE2), (83, 0x2C), (84, 0xE6), (FN_KEY_INDEX, 0xAF), (88, 0x50),
+    (89, 0x51), (91, 0x4F), (93, 0x62), (94, 0x63),
+];
+
+pub fn factory_entry(index: u8) -> Option<KeyEntry> {
+    F99_KEYS.iter().find(|(i, _)| *i == index).map(|&(_, hid)| [2, 0, hid, 0])
+}
+
+pub fn is_remappable(index: u8) -> bool {
+    index != FN_KEY_INDEX && factory_entry(index).is_some()
+}
+
+const MOUSE_BUTTONS: [u8; 5] = [1, 2, 4, 8, 16];
+
+/// Accepts only the assignment kinds CustomChrome offers: keys, modifiers, media and mouse.
+pub fn is_valid_entry(e: &KeyEntry) -> bool {
+    match *e {
+        [2, 0, code, 0] => (0x04..=0xA4).contains(&code) || (0xE0..=0xE7).contains(&code),
+        [2, modifier, 0, 0] => (0xE0..=0xE7).contains(&modifier),
+        [3, lo, hi, 0] => u16::from_le_bytes([lo, hi]) != 0,
+        [1, 1, button, 0] => MOUSE_BUTTONS.contains(&button),
+        [1, 3, 1 | 255, 0] => true,
+        _ => false,
+    }
+}
+
 pub const LIGHTING_LEN: usize = 16;
 pub const LIGHTING_LEVEL_MAX: u8 = 6;
 const EFFECT_LAST_BUILT_IN: u8 = 0x13;
@@ -291,6 +361,44 @@ mod tests {
             Lighting::from_bytes(&bytes),
             Lighting { effect: 0x0D, color: [255; 3], rainbow: true, brightness: 6, speed: 3, direction: 0 }
         );
+    }
+
+    #[test]
+    fn key_table_chunks_match_official_layout() {
+        let table: Vec<u8> = (0..KEY_TABLE_LEN).map(|i| i as u8).collect();
+        let packets = chunked_requests(CMD_WRITE_KEYS, 32, &table);
+        assert_eq!(packets.len(), 22);
+        assert_eq!(&packets[0][..5], &[0xAA, 0x22, 24, 0, 0]);
+        assert_eq!(&packets[0][8..32], &table[..24]);
+        assert_eq!(&packets[21][..5], &[0xAA, 0x22, 8, 0xF8, 0x01]);
+        assert_eq!(&packets[21][8..16], &table[504..]);
+        assert!(packets[21][16..].iter().all(|&b| b == 0));
+
+        let reads = chunked_requests(CMD_READ_KEYS, 64, &[0; KEY_TABLE_LEN]);
+        assert_eq!(reads.len(), 10);
+        assert_eq!(&reads[9][..5], &[0xAA, 0x12, 8, 0xF8, 0x01]);
+    }
+
+    #[test]
+    fn key_entries_are_validated() {
+        assert!(is_valid_entry(&[2, 0, 0x04, 0]));
+        assert!(is_valid_entry(&[2, 0xE0, 0, 0]));
+        assert!(is_valid_entry(&[3, 0xCD, 0, 0]));
+        assert!(is_valid_entry(&[1, 1, 2, 0]));
+        assert!(is_valid_entry(&[1, 3, 255, 0]));
+        assert!(!is_valid_entry(&[0, 0, 0, 0]));
+        assert!(!is_valid_entry(&[6, 0, 0, 1]));
+        assert!(!is_valid_entry(&[2, 0, 0x00, 0]));
+        assert!(!is_valid_entry(&[1, 1, 3, 0]));
+    }
+
+    #[test]
+    fn fn_key_is_never_remappable() {
+        assert!(!is_remappable(FN_KEY_INDEX));
+        assert!(is_remappable(33));
+        assert!(!is_remappable(13));
+        assert_eq!(factory_entry(59), Some([2, 0, 0x34, 0]));
+        assert_eq!(F99_KEYS.len(), 97);
     }
 
     #[test]

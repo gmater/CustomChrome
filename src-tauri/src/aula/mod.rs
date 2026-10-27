@@ -11,6 +11,8 @@ pub enum Error {
     UnsupportedModel(String),
     #[error("That lighting effect isn't available.")]
     UnsupportedEffect,
+    #[error("That key or assignment can't be changed.")]
+    InvalidKey,
     #[error("The keyboard's {0} interface is missing or not what CustomChrome expects.")]
     UnexpectedInterface(&'static str),
     #[error("The keyboard did not reply in time.")]

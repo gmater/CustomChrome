@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use hidapi::{DeviceInfo, HidApi, HidDevice};
 use serde::Serialize;
 
-use super::protocol::{self, KeyboardInfo, Lighting, LIGHTING_LEN};
+use super::protocol::{self, KeyEntry, KeyboardInfo, Lighting, LIGHTING_LEN};
 use super::{Error, Result};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
@@ -148,14 +148,19 @@ fn wait_for(device: &HidDevice, mut accept: impl FnMut(&[u8]) -> bool) -> Result
 }
 
 impl Control {
-    /// Discards reports queued before the request so an old one can't be mistaken for the reply.
-    fn transact(&self, cmd: u8, data: &[u8], accept: impl FnMut(&[u8]) -> bool) -> Result<Vec<u8>> {
+    /// Discards reports queued before a request so an old one can't be mistaken for the reply.
+    fn drain(&self) -> Result<()> {
         let mut stale = vec![0u8; 8192];
         for _ in 0..64 {
             if self.device.read_timeout(&mut stale, 0)? == 0 {
                 break;
             }
         }
+        Ok(())
+    }
+
+    fn transact(&self, cmd: u8, data: &[u8], accept: impl FnMut(&[u8]) -> bool) -> Result<Vec<u8>> {
+        self.drain()?;
         write_report(&self.device, &protocol::request(cmd, self.packet_len, data))?;
         wait_for(&self.device, accept)
     }
@@ -175,6 +180,69 @@ impl Control {
         protocol::merge_reply(&reply, &mut bytes);
         Ok(bytes)
     }
+}
+
+impl Control {
+    fn read_key_table(&self) -> Result<Vec<u8>> {
+        let mut table = vec![0u8; protocol::KEY_TABLE_LEN];
+        self.drain()?;
+        for packet in protocol::chunked_requests(protocol::CMD_READ_KEYS, self.packet_len, &table.clone()) {
+            write_report(&self.device, &packet)?;
+            let reply = wait_for(&self.device, |r| protocol::is_reply_to(protocol::CMD_READ_KEYS, r))?;
+            protocol::merge_reply(&reply, &mut table);
+        }
+        Ok(table)
+    }
+
+    fn write_key_table(&self, table: &[u8]) -> Result<()> {
+        self.drain()?;
+        for packet in protocol::chunked_requests(protocol::CMD_WRITE_KEYS, self.packet_len, table) {
+            write_report(&self.device, &packet)?;
+            wait_for(&self.device, |r| r.len() > 1 && r[1] != protocol::CMD_STATUS)?;
+        }
+        Ok(())
+    }
+}
+
+fn key_entries(table: &[u8]) -> Vec<KeyEntry> {
+    table.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]).collect()
+}
+
+pub fn read_keys() -> Result<Vec<KeyEntry>> {
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    Ok(key_entries(&control.read_key_table()?))
+}
+
+/// `entry: None` restores the key's factory assignment.
+pub fn assign_key(index: u8, entry: Option<KeyEntry>) -> Result<Vec<KeyEntry>> {
+    if !protocol::is_remappable(index) {
+        return Err(Error::InvalidKey);
+    }
+    let entry = match entry {
+        Some(e) if protocol::is_valid_entry(&e) => e,
+        Some(_) => return Err(Error::InvalidKey),
+        None => protocol::factory_entry(index).ok_or(Error::InvalidKey)?,
+    };
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let mut table = control.read_key_table()?;
+    let at = index as usize * 4;
+    table[at..at + 4].copy_from_slice(&entry);
+    control.write_key_table(&table)?;
+    Ok(key_entries(&table))
+}
+
+pub fn reset_keys() -> Result<Vec<KeyEntry>> {
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let mut table = control.read_key_table()?;
+    for &(index, _) in protocol::F99_KEYS.iter().filter(|(i, _)| protocol::is_remappable(*i)) {
+        let at = index as usize * 4;
+        table[at..at + 4].copy_from_slice(&protocol::factory_entry(index).unwrap());
+    }
+    control.write_key_table(&table)?;
+    Ok(key_entries(&table))
 }
 
 pub fn read_info() -> Result<KeyboardInfo> {

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import type { KeyEntry } from "./keycodes";
 
 export type Connection = "wired" | "dongle";
 
@@ -28,6 +29,14 @@ export interface KeyboardInfo {
 export const detectKeyboard = () => invoke<KeyboardSummary | null>("detect_keyboard");
 
 export const keyboardInfo = () => invoke<KeyboardInfo>("keyboard_info");
+
+export const readKeys = () => invoke<KeyEntry[]>("read_keys");
+
+export const factoryKeys = () => invoke<[number, KeyEntry][]>("factory_keys");
+
+export const assignKey = (index: number, entry: KeyEntry | null) => invoke<KeyEntry[]>("assign_key", { index, entry });
+
+export const resetKeys = () => invoke<KeyEntry[]>("reset_keys");
 
 export const readLighting = () => invoke<Lighting>("read_lighting");
 
