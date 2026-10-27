@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { describe, GROUPS, macroEntry, macroName, MACRO_MODES, sameEntry, type Assignable, type KeyEntry } from "../lib/keycodes";
+import { describe, GROUPS, macroEntry, macroName, MACRO_KIND, MACRO_MODES, sameEntry, type Assignable, type KeyEntry } from "../lib/keycodes";
 import { assignKey, errorText, factoryKeys, loadMacroNames, readMacros, resetKeys, type KeyboardSummary } from "../lib/keyboard";
 import { FN_INDEX, KEYBOARD_UNITS_H, KEYBOARD_UNITS_W, KEYS, SCREEN, STRIP } from "../lib/layout";
 
@@ -68,6 +68,23 @@ export default function KeysStudio({ keyboard }: Props) {
     [macroCount, macroNames, macroMode, repeats],
   );
   const groups = useMemo(() => [...GROUPS, { name: "Macros", items: macroItems }], [macroItems]);
+  const select = (index: number) => {
+    setSelected(index);
+    if (!entries) return;
+    const entry = entries[index];
+    if (entry[0] === MACRO_KIND) {
+      setMacroMode(entry[2]);
+      if (entry[2] === 1) setRepeats(entry[3]);
+    }
+    const home = groups.find((g) =>
+      g.items.some((a) => (entry[0] === MACRO_KIND ? a.entry[1] === entry[1] && a.entry[0] === MACRO_KIND : sameEntry(a.entry, entry))),
+    );
+    if (home) {
+      setGroup(home.name);
+      setQuery("");
+    }
+  };
+
   const showingMacros = !query.trim() && group === "Macros";
 
   const options = useMemo(() => {
@@ -142,7 +159,7 @@ export default function KeysStudio({ keyboard }: Props) {
                       height: pct(1, KEYBOARD_UNITS_H),
                     } as CSSProperties
                   }
-                  onClick={() => setSelected(k.index)}
+                  onClick={() => select(k.index)}
                 >
                   <span className="cap">
                     <span className="legend">{k.label}</span>
