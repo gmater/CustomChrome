@@ -1,12 +1,38 @@
 mod aula;
 
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
-use aula::{device, protocol::KeyboardInfo, Error};
+use aula::protocol::{KeyboardInfo, Lighting};
+use aula::{device, Error};
 use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Emitter, Manager};
 
-struct UploadLock(Mutex<()>);
+/// One keyboard conversation at a time: interleaved commands would swap each other's replies.
+struct DeviceLock(Mutex<()>);
+
+/// Long enough to queue behind a lighting write, short enough to fail fast during a screen upload.
+const LOCK_WAIT: Duration = Duration::from_secs(3);
+
+async fn exclusive<T: Send + 'static>(
+    app: AppHandle,
+    task: impl FnOnce(&AppHandle) -> Result<T, Error> + Send + 'static,
+) -> Result<T, Error> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let lock = app.state::<DeviceLock>();
+        let deadline = Instant::now() + LOCK_WAIT;
+        let _guard = loop {
+            match lock.0.try_lock() {
+                Ok(guard) => break guard,
+                Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
+                Err(_) => return Err(Error::Busy),
+            }
+        };
+        task(&app)
+    })
+    .await
+    .map_err(|_| Error::Interrupted)?
+}
 
 #[tauri::command]
 async fn detect_keyboard() -> Result<Option<device::KeyboardSummary>, Error> {
@@ -16,10 +42,18 @@ async fn detect_keyboard() -> Result<Option<device::KeyboardSummary>, Error> {
 }
 
 #[tauri::command]
-async fn keyboard_info() -> Result<KeyboardInfo, Error> {
-    tauri::async_runtime::spawn_blocking(device::read_info)
-        .await
-        .map_err(|_| Error::Interrupted)?
+async fn keyboard_info(app: AppHandle) -> Result<KeyboardInfo, Error> {
+    exclusive(app, |_| device::read_info()).await
+}
+
+#[tauri::command]
+async fn read_lighting(app: AppHandle) -> Result<Lighting, Error> {
+    exclusive(app, |_| device::read_lighting()).await
+}
+
+#[tauri::command]
+async fn write_lighting(app: AppHandle, lighting: Lighting) -> Result<Lighting, Error> {
+    exclusive(app, move |_| device::write_lighting(&lighting)).await
 }
 
 #[tauri::command]
@@ -38,21 +72,24 @@ async fn upload_screen(app: AppHandle, request: Request<'_>) -> Result<u16, Erro
         .map_err(|_| Error::InvalidImage("frame delays must be whole numbers".into()))?;
     let rgba = rgba.clone();
 
-    tauri::async_runtime::spawn_blocking(move || {
-        let lock = app.state::<UploadLock>();
-        let _guard = lock.0.try_lock().map_err(|_| Error::Busy)?;
+    exclusive(app, move |app| {
         device::upload_screen(&rgba, &delays, |percent| {
             let _ = app.emit("upload-progress", percent);
         })
     })
     .await
-    .map_err(|_| Error::Interrupted)?
 }
 
 pub fn run() {
     tauri::Builder::default()
-        .manage(UploadLock(Mutex::new(())))
-        .invoke_handler(tauri::generate_handler![detect_keyboard, keyboard_info, upload_screen])
+        .manage(DeviceLock(Mutex::new(())))
+        .invoke_handler(tauri::generate_handler![
+            detect_keyboard,
+            keyboard_info,
+            read_lighting,
+            write_lighting,
+            upload_screen
+        ])
         .run(tauri::generate_context!())
         .expect("error while running CustomChrome");
 }

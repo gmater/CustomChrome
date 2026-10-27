@@ -7,6 +7,10 @@ pub enum Error {
     NotConnected,
     #[error("The keyboard is on the wireless dongle. Plug in the USB cable and switch the keyboard to wired mode to change the screen.")]
     WiredRequired,
+    #[error("\"{0}\" uses the same USB ID as the F99 MAX but is a different keyboard, so CustomChrome won't change its settings.")]
+    UnsupportedModel(String),
+    #[error("That lighting effect isn't available.")]
+    UnsupportedEffect,
     #[error("The keyboard's {0} interface is missing or not what CustomChrome expects.")]
     UnexpectedInterface(&'static str),
     #[error("The keyboard did not reply in time.")]
@@ -15,7 +19,7 @@ pub enum Error {
     UnknownFrameLimit,
     #[error("Invalid image data: {0}")]
     InvalidImage(String),
-    #[error("A screen upload is already running.")]
+    #[error("The keyboard is busy with another task. Try again when it finishes.")]
     Busy,
     #[error("The upload was interrupted.")]
     Interrupted,

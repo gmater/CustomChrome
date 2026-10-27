@@ -6,8 +6,17 @@ export type Connection = "wired" | "dongle";
 export interface KeyboardSummary {
   name: string;
   connection: Connection;
-  productId: number;
+  supported: boolean;
   screenUpload: boolean;
+}
+
+export interface Lighting {
+  effect: number;
+  color: [number, number, number];
+  rainbow: boolean;
+  brightness: number;
+  speed: number;
+  direction: number;
 }
 
 export interface KeyboardInfo {
@@ -19,6 +28,10 @@ export interface KeyboardInfo {
 export const detectKeyboard = () => invoke<KeyboardSummary | null>("detect_keyboard");
 
 export const keyboardInfo = () => invoke<KeyboardInfo>("keyboard_info");
+
+export const readLighting = () => invoke<Lighting>("read_lighting");
+
+export const writeLighting = (lighting: Lighting) => invoke<Lighting>("write_lighting", { lighting });
 
 export async function uploadScreen(
   rgba: Uint8Array,

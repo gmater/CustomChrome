@@ -3,7 +3,11 @@ pub const PRODUCT_ID_WIRED: u16 = 0x800A;
 pub const DONGLE_VENDOR_ID: u16 = 0x05AC;
 pub const PRODUCT_ID_DONGLE: u16 = 0x024F;
 
+pub const PRODUCT_NAME_WIRED: &str = "AULA F99 MAX";
+pub const PRODUCT_NAME_DONGLE: &str = "F99 MAX Dongle";
+
 pub const USAGE_PAGE_CONTROL: u16 = 0xFF68;
+pub const USAGE_PAGE_CONTROL_DONGLE: u16 = 0xFF60;
 pub const USAGE_CONTROL: u16 = 0x61;
 pub const USAGE_PAGE_SCREEN: u16 = 0xFF67;
 
@@ -15,8 +19,12 @@ pub const SCREEN_HEADER_LEN: usize = 256;
 pub const MAX_HEADER_FRAMES: usize = SCREEN_HEADER_LEN - 1;
 
 const PACKET_MAGIC: u8 = 0xAA;
-const CMD_DEVICE_INFO: u8 = 0x10;
+pub const CMD_DEVICE_INFO: u8 = 0x10;
+pub const CMD_READ_LIGHTING: u8 = 0x13;
+pub const CMD_WRITE_LIGHTING: u8 = 0x23;
 const CMD_SCREEN: u8 = 0x50;
+/// Status reports the firmware sends unprompted; the official app never treats them as a reply.
+pub const CMD_STATUS: u8 = 0x37;
 const SCREEN_CHUNK: usize = 4096;
 const SCREEN_FLASH_ADDRESS: usize = 0x65_0000;
 const DEVICE_INFO_LEN: usize = 32;
@@ -75,16 +83,79 @@ pub fn screen_packets(header: &[u8; SCREEN_HEADER_LEN], pixels: &[u8]) -> Vec<Ve
         .collect()
 }
 
-pub fn device_info_request(packet_len: usize) -> Vec<u8> {
+/// A single-packet command; the official app always declares a full payload even when `data` is shorter.
+pub fn request(cmd: u8, packet_len: usize, data: &[u8]) -> Vec<u8> {
     let mut packet = vec![0; packet_len];
     packet[0] = PACKET_MAGIC;
-    packet[1] = CMD_DEVICE_INFO;
+    packet[1] = cmd;
     packet[2] = (packet_len - 8) as u8;
+    packet[8..8 + data.len()].copy_from_slice(data);
     packet
 }
 
-pub fn is_device_info_reply(reply: &[u8]) -> bool {
-    reply.len() > 8 && reply[0] == PACKET_MAGIC && reply[1] == CMD_DEVICE_INFO
+/// Replies start with 0x55 rather than the request's 0xAA, so only the command byte identifies them.
+pub fn is_reply_to(cmd: u8, reply: &[u8]) -> bool {
+    reply.len() > 8 && reply[1] == cmd
+}
+
+/// Copies a reply's payload into `target` at the offset the reply declares.
+pub fn merge_reply(reply: &[u8], target: &mut [u8]) {
+    let len = reply[2] as usize;
+    let offset = reply[3] as usize | (reply[4] as usize) << 8;
+    for i in 0..len {
+        let (src, dst) = (8 + i, offset + i);
+        if src < reply.len() && dst < target.len() {
+            target[dst] = reply[src];
+        }
+    }
+}
+
+pub const LIGHTING_LEN: usize = 16;
+pub const LIGHTING_LEVEL_MAX: u8 = 6;
+const EFFECT_LAST_BUILT_IN: u8 = 0x13;
+
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Lighting {
+    pub effect: u8,
+    pub color: [u8; 3],
+    pub rainbow: bool,
+    pub brightness: u8,
+    pub speed: u8,
+    pub direction: u8,
+}
+
+impl Lighting {
+    pub fn from_bytes(b: &[u8; LIGHTING_LEN]) -> Self {
+        let level = |v: u8| v.clamp(1, LIGHTING_LEVEL_MAX);
+        Lighting {
+            effect: b[0],
+            color: [b[1], b[2], b[3]],
+            rainbow: b[8] != 0,
+            brightness: level(b[9]),
+            speed: level(b[10]),
+            direction: b[11],
+        }
+    }
+
+    pub fn is_supported_effect(effect: u8) -> bool {
+        effect <= EFFECT_LAST_BUILT_IN
+    }
+
+    /// Writes this state over `current`, keeping the bytes CustomChrome doesn't manage.
+    pub fn apply_to(&self, current: &[u8; LIGHTING_LEN]) -> [u8; LIGHTING_LEN] {
+        let mut b = *current;
+        b[0] = self.effect;
+        b[1..4].copy_from_slice(&self.color);
+        b[4] = 0xFF;
+        b[8] = self.rainbow as u8;
+        b[9] = self.brightness.clamp(1, LIGHTING_LEVEL_MAX);
+        b[10] = self.speed.clamp(1, LIGHTING_LEVEL_MAX);
+        b[11] = self.direction.min(1);
+        b[14] = 0xAA;
+        b[15] = 0x55;
+        b
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, PartialEq)]
@@ -97,14 +168,7 @@ pub struct KeyboardInfo {
 
 pub fn parse_device_info(reply: &[u8]) -> KeyboardInfo {
     let mut info = [0u8; DEVICE_INFO_LEN];
-    let len = reply[2] as usize;
-    let offset = reply[3] as usize | (reply[4] as usize) << 8;
-    for i in 0..len {
-        let (src, dst) = (8 + i, offset + i);
-        if src < reply.len() && dst < DEVICE_INFO_LEN {
-            info[dst] = reply[src];
-        }
-    }
+    merge_reply(reply, &mut info);
     let version = (info[8] & 0x0F) as u32 + 10 * ((info[8] & 0xF0) >> 4) as u32 + 100 * info[9] as u32;
     KeyboardInfo {
         firmware: format!("{:.2}", version as f64 / 100.0),
@@ -202,6 +266,72 @@ mod tests {
         assert_eq!(info.firmware, "1.23");
         assert_eq!(info.battery, 87);
         assert_eq!(info.max_frames, 300);
+    }
+
+    #[test]
+    fn parses_replies_captured_from_f99_max_dongle() {
+        let info_reply = [
+            0x55, 0x10, 0x18, 0, 0, 0, 0, 0, 0x40, 0, 0, 0x0C, 0x45, 0x0C, 0x0A, 0x80, 0x22, 0x01, 0xFF, 0xFF, 0x11,
+            0, 0x06, 0, 0x02, 0x38, 0, 0, 0, 0, 0x68, 0,
+        ];
+        assert!(is_reply_to(CMD_DEVICE_INFO, &info_reply));
+        assert_eq!(
+            parse_device_info(&info_reply),
+            KeyboardInfo { firmware: "1.22".into(), battery: 56, max_frames: 104 }
+        );
+
+        let lighting_reply = [
+            0x55, 0x13, 0x18, 0, 0, 0, 0, 0, 0x0D, 0xFF, 0xFF, 0xFF, 0xFF, 0, 0, 0, 0x01, 0x06, 0x03, 0, 0, 0, 0xAA,
+            0x55, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        assert!(is_reply_to(CMD_READ_LIGHTING, &lighting_reply));
+        let mut bytes = [0u8; LIGHTING_LEN];
+        merge_reply(&lighting_reply, &mut bytes);
+        assert_eq!(
+            Lighting::from_bytes(&bytes),
+            Lighting { effect: 0x0D, color: [255; 3], rainbow: true, brightness: 6, speed: 3, direction: 0 }
+        );
+    }
+
+    #[test]
+    fn requests_match_official_layout() {
+        let read = request(CMD_READ_LIGHTING, 32, &[]);
+        assert_eq!(read.len(), 32);
+        assert_eq!(&read[..8], &[0xAA, 0x13, 24, 0, 0, 0, 0, 0]);
+        assert!(read[8..].iter().all(|&b| b == 0));
+
+        let write = request(CMD_WRITE_LIGHTING, 64, &[7; LIGHTING_LEN]);
+        assert_eq!(&write[..3], &[0xAA, 0x23, 56]);
+        assert_eq!(&write[8..24], &[7; LIGHTING_LEN]);
+        assert_eq!(write[24], 0);
+    }
+
+    #[test]
+    fn lighting_round_trips_official_default() {
+        let default = [11, 255, 255, 255, 255, 0, 0, 0, 1, 5, 3, 0, 0, 0, 170, 85];
+        let lighting = Lighting::from_bytes(&default);
+        assert_eq!(
+            lighting,
+            Lighting { effect: 11, color: [255; 3], rainbow: true, brightness: 5, speed: 3, direction: 0 }
+        );
+        assert_eq!(lighting.apply_to(&default), default);
+    }
+
+    #[test]
+    fn lighting_write_clamps_and_keeps_unmanaged_bytes() {
+        let current = [1, 0, 0, 0, 255, 9, 8, 7, 0, 1, 1, 0, 4, 3, 170, 85];
+        let wanted = Lighting { effect: 7, color: [10, 20, 30], rainbow: false, brightness: 0, speed: 99, direction: 5 };
+        assert_eq!(
+            wanted.apply_to(&current),
+            [7, 10, 20, 30, 255, 9, 8, 7, 0, 1, 6, 1, 4, 3, 170, 85]
+        );
+    }
+
+    #[test]
+    fn only_built_in_effects_are_allowed() {
+        assert!(Lighting::is_supported_effect(0));
+        assert!(Lighting::is_supported_effect(0x13));
+        assert!(!Lighting::is_supported_effect(0x80));
     }
 
     #[test]

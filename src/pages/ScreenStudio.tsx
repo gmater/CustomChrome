@@ -85,7 +85,10 @@ export default function ScreenStudio({ keyboard, info }: Props) {
         </div>
       </header>
 
-      {keyboard?.connection === "dongle" && (
+      {keyboard && !keyboard.supported && (
+        <div className="banner warn">"{keyboard.name}" isn't an AULA F99 MAX, so CustomChrome won't send it images.</div>
+      )}
+      {keyboard?.supported && keyboard.connection === "dongle" && (
         <div className="banner warn">
           The keyboard is connected through the wireless dongle. Plug in the USB cable and switch the keyboard to wired mode to change the screen.
         </div>
