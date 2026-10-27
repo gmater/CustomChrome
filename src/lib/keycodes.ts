@@ -77,7 +77,14 @@ export const GROUPS: Group[] = [
   },
 ];
 
-const same = (a: KeyEntry, b: KeyEntry) => a.every((v, i) => v === b[i]);
+/** The keyboard stores modifiers as plain keys ([2, 0, 0xE0, 0]) but also accepts the modifier form. */
+const normalize = (e: KeyEntry): KeyEntry =>
+  e[0] === 2 && e[1] === 0 && e[2] >= 0xe0 && e[2] <= 0xe7 && e[3] === 0 ? [2, e[2], 0, 0] : e;
+
+const same = (a: KeyEntry, b: KeyEntry) => {
+  const [x, y] = [normalize(a), normalize(b)];
+  return x.every((v, i) => v === y[i]);
+};
 
 export const MACRO_KIND = 6;
 
