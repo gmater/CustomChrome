@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use super::protocol::{self, KeyEntry, KeyboardInfo, Lighting, Macro, LIGHTING_LEN};
 use super::{Error, Result};
+use crate::diag;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -194,13 +195,18 @@ impl Control {
     /// Sends one chunk and waits for the reply that echoes its command and offset, resending it
     /// when the keyboard misses it. Chunks are idempotent, so a resend is always safe.
     fn send_chunk(&self, packet: &[u8]) -> Result<Vec<u8>> {
-        for _ in 0..CHUNK_ATTEMPTS {
+        let offset = u16::from_le_bytes([packet[3], packet[4]]);
+        for attempt in 1..=CHUNK_ATTEMPTS {
             write_report(&self.device, packet)?;
             match wait_within(&self.device, CHUNK_TIMEOUT, |r| protocol::acknowledges(packet, r)) {
-                Err(Error::Timeout) => continue,
+                Err(Error::Timeout) => diag::warn(format!(
+                    "no reply to command {:#04X} at offset {offset} (attempt {attempt}/{CHUNK_ATTEMPTS})",
+                    packet[1]
+                )),
                 other => return other,
             }
         }
+        diag::error(format!("gave up on command {:#04X} at offset {offset}", packet[1]));
         Err(Error::Timeout)
     }
 
@@ -216,7 +222,7 @@ impl Control {
 
     /// The keyboard wipes a table when its first chunk arrives, so a transfer that stops part way
     /// leaves keys dead. Every chunk must be acknowledged, and the table is read back to confirm.
-    fn write_area(&self, cmd: u8, read_cmd: u8, area: &[u8]) -> Result<()> {
+    fn write_area(&self, cmd: u8, read_cmd: u8, area: &[u8], stored: fn(&[u8], &[u8]) -> bool) -> Result<()> {
         std::thread::sleep(SETTLE);
         self.drain()?;
         let mut result = Ok(());
@@ -226,9 +232,16 @@ impl Control {
                 .try_for_each(|packet| self.send_chunk(packet).map(drop));
             if result.is_ok() {
                 std::thread::sleep(SETTLE);
-                if self.read_area(read_cmd, area.len())? == area {
+                let back = self.read_area(read_cmd, area.len())?;
+                if stored(area, &back) {
                     return Ok(());
                 }
+                let first = back.iter().zip(area).position(|(a, b)| a != b).unwrap_or(0);
+                diag::warn(format!(
+                    "command {cmd:#04X}: read-back differs from {first} (wrote {:02X?}, got {:02X?})",
+                    &area[first..(first + 8).min(area.len())],
+                    &back[first..(first + 8).min(back.len())]
+                ));
                 result = Err(Error::WriteNotVerified);
             }
             std::thread::sleep(SETTLE);
@@ -242,7 +255,7 @@ impl Control {
     }
 
     fn write_key_table(&self, table: &[u8]) -> Result<()> {
-        self.write_area(protocol::CMD_WRITE_KEYS, protocol::CMD_READ_KEYS, table)
+        self.write_area(protocol::CMD_WRITE_KEYS, protocol::CMD_READ_KEYS, table, protocol::key_table_stored)
     }
 
     fn read_macros(&self) -> Result<Vec<Macro>> {
@@ -251,7 +264,7 @@ impl Control {
 
     fn write_macros(&self, macros: &[Macro]) -> Result<()> {
         let area = protocol::encode_macros(macros).ok_or(Error::InvalidMacro)?;
-        self.write_area(protocol::CMD_WRITE_MACROS, protocol::CMD_READ_MACROS, &area)
+        self.write_area(protocol::CMD_WRITE_MACROS, protocol::CMD_READ_MACROS, &area, |a, b| a == b)
     }
 }
 
@@ -266,6 +279,54 @@ pub fn read_macros() -> Result<MacroState> {
     let control = open_control(&api, connected(&api)?)?;
     let macros = control.read_macros()?;
     Ok(MacroState { macros, keys: key_entries(&control.read_key_table()?) })
+}
+
+#[derive(Serialize)]
+pub struct Health {
+    pub issues: Vec<protocol::Issue>,
+    pub macros: usize,
+    pub remapped: Vec<(u8, KeyEntry)>,
+}
+
+fn health(keys: &[KeyEntry], macros: &[Macro]) -> Health {
+    Health {
+        issues: protocol::find_issues(keys, macros),
+        macros: macros.len(),
+        remapped: protocol::F99_KEYS
+            .iter()
+            .filter_map(|&(i, _)| {
+                let entry = keys[i as usize];
+                (Some(protocol::canonical_entry(entry)) != protocol::factory_entry(i)).then_some((i, entry))
+            })
+            .collect(),
+    }
+}
+
+pub fn check() -> Result<Health> {
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let macros = control.read_macros()?;
+    let keys = key_entries(&control.read_key_table()?);
+    Ok(health(&keys, &macros))
+}
+
+pub fn repair() -> Result<Health> {
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let mut macros = control.read_macros()?;
+    let table = control.read_key_table()?;
+    let mut keys = key_entries(&table);
+    let (keys_before, macros_before) = (keys.clone(), macros.clone());
+    protocol::repair(&mut keys, &mut macros);
+    if macros != macros_before {
+        control.write_macros(&macros)?;
+    }
+    if keys != keys_before {
+        control.write_key_table(&keys.concat())?;
+    }
+    let macros = control.read_macros()?;
+    let keys = key_entries(&control.read_key_table()?);
+    Ok(health(&keys, &macros))
 }
 
 /// Replaces macro `index`, or appends a new one when `index` equals the macro count.

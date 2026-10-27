@@ -1173,6 +1173,121 @@ kbd {
   margin-top: 8px;
 }
 
+/* health and reports */
+.health-banner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  border: 1px solid rgba(255, 107, 122, 0.4);
+  border-radius: var(--radius);
+  background: rgba(255, 107, 122, 0.1);
+  backdrop-filter: blur(20px);
+}
+
+.health-banner > div {
+  flex: 1;
+}
+
+.health-banner strong {
+  color: #ffc2c8;
+}
+
+.health-banner ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.health-banner .primary {
+  flex: none;
+  margin: 0;
+  padding: 10px 22px;
+}
+
+.health-error {
+  margin: 8px 0 0;
+  color: var(--err);
+}
+
+.report-link {
+  margin: -8px 8px 0;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font-size: 12px;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.report-link:hover {
+  color: var(--muted);
+}
+
+.dialog-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(5, 6, 10, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(520px, 90vw);
+  background: #181a22;
+}
+
+.dialog h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.dialog textarea {
+  min-height: 130px;
+  padding: 12px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.3);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  outline: none;
+  resize: vertical;
+}
+
+.dialog textarea:focus {
+  border-color: var(--live);
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dialog .primary {
+  margin: 0;
+  padding: 10px 20px;
+}
+
+.report-path {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--muted);
+  font-size: 12px;
+  word-break: break-all;
+}
+
 /* macros */
 .page-header .primary {
   margin: 0;

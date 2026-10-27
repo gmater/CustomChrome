@@ -44,6 +44,27 @@ export interface MacroState {
   keys: KeyEntry[];
 }
 
+export type Issue =
+  | { kind: "damagedKey"; key: number; entry: KeyEntry }
+  | { kind: "missingMacro"; key: number; slot: number }
+  | { kind: "macroLeavesHeld"; slot: number; codes: number[] }
+  | { kind: "badMacroStep"; slot: number };
+
+export interface Health {
+  issues: Issue[];
+  macros: number;
+  remapped: [number, KeyEntry][];
+}
+
+export const checkKeyboard = () => invoke<Health>("check_keyboard");
+
+export const repairKeyboard = () => invoke<Health>("repair_keyboard");
+
+export const logEvent = (level: "info" | "warn" | "error", message: string) =>
+  invoke("log_event", { level, message }).catch(() => {});
+
+export const saveReport = (description: string, context: string) => invoke<string>("save_report", { description, context });
+
 export const readMacros = () => invoke<MacroState>("read_macros");
 
 export const saveMacro = (index: number, events: MacroEvent[]) => invoke<MacroState>("save_macro", { index, events });

@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
-import { detectKeyboard, keyboardInfo, type KeyboardInfo, type KeyboardSummary } from "./lib/keyboard";
+import { describeIssues, HealthBanner, ReportDialog } from "./components/Health";
+import { checkKeyboard, detectKeyboard, keyboardInfo, type Health, type KeyboardInfo, type KeyboardSummary } from "./lib/keyboard";
+
+/** Lets the page read the keyboard first, so the check doesn't hold it up. */
+const CHECK_DELAY_MS = 2500;
 import KeysStudio from "./pages/KeysStudio";
 import LightingStudio from "./pages/LightingStudio";
 import MacrosStudio from "./pages/MacrosStudio";
@@ -52,6 +56,28 @@ export default function App() {
     };
   }, []);
 
+  const [health, setHealth] = useState<Health | null>(null);
+  const [reporting, setReporting] = useState(false);
+  const supportedKey = keyboard?.supported ? `${keyboard.connection}:${keyboard.name}` : "";
+
+  useEffect(() => {
+    setHealth(null);
+    if (!supportedKey) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      checkKeyboard()
+        .then((h) => alive && setHealth(h))
+        .catch(() => {});
+    }, CHECK_DELAY_MS);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [supportedKey, page]);
+
+  const reportContext = () =>
+    JSON.stringify({ keyboard, info, page, health, issues: health ? describeIssues(health.issues) : null }, null, 2);
+
   const current = NAV.find((n) => n.id === page)!;
 
   let detail = "Plug in the keyboard";
@@ -87,9 +113,15 @@ export default function App() {
             <small>{detail}</small>
           </div>
         </div>
+        <button className="report-link" onClick={() => setReporting(true)}>
+          Report a problem
+        </button>
       </aside>
 
+      {reporting && <ReportDialog context={reportContext} onClose={() => setReporting(false)} />}
+
       <main className="content">
+        {health && <HealthBanner health={health} onFixed={setHealth} />}
         {page === "screen" ? (
           <ScreenStudio keyboard={keyboard} info={info} />
         ) : page === "lighting" ? (

@@ -27,6 +27,14 @@ export function installMockKeyboard() {
     switch (cmd) {
       case "read_keys":
         return keys;
+      case "check_keyboard":
+        return { issues: [{ kind: "damagedKey", key: 6, entry: [255, 255, 255, 255] }], macros: macros.length, remapped: [] };
+      case "repair_keyboard":
+        return later({ issues: [], macros: macros.length, remapped: [] });
+      case "log_event":
+        return null;
+      case "save_report":
+        return "D:\\Apps\\CustomChrome\\logs\\reports\\report-mock.txt";
       case "read_macros":
         return { macros, keys };
       case "macro_capacity":

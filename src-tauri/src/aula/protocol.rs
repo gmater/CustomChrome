@@ -174,6 +174,13 @@ pub fn is_remappable(index: u8) -> bool {
 
 const MOUSE_BUTTONS: [u8; 5] = [1, 2, 4, 8, 16];
 
+/// The keyboard replaces an all-zero entry with its own default for that slot, so a zero entry
+/// matches whatever it reads back as; every other entry must come back exactly.
+pub fn key_table_stored(written: &[u8], read: &[u8]) -> bool {
+    written.len() == read.len()
+        && written.chunks(4).zip(read.chunks(4)).all(|(w, r)| w == r || w.iter().all(|&b| b == 0))
+}
+
 /// Stores modifiers the way the factory table does, as plain key codes.
 pub fn canonical_entry(e: KeyEntry) -> KeyEntry {
     match e {
@@ -298,6 +305,76 @@ pub fn shift_macro_refs(table: &mut [u8], removed: u8) {
             entry.copy_from_slice(&restored);
         } else if entry[1] > removed {
             entry[1] -= 1;
+        }
+    }
+}
+
+/// Assignment kinds the official app writes; anything else in the table is damage.
+const KNOWN_KINDS: [u8; 9] = [0, 1, 2, 3, 6, 8, 9, 10, 13];
+
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum Issue {
+    /// A key slot holds bytes no valid assignment uses, e.g. FF FF FF FF after an interrupted write.
+    DamagedKey { key: u8, entry: KeyEntry },
+    /// A key plays a macro that no longer exists.
+    MissingMacro { key: u8, slot: u8 },
+    /// A macro presses keys it never releases, which would leave them held down.
+    MacroLeavesHeld { slot: usize, codes: Vec<u8> },
+    /// A macro step uses a code CustomChrome doesn't know.
+    BadMacroStep { slot: usize },
+}
+
+fn held_after(events: &[MacroEvent]) -> Vec<(bool, u8)> {
+    let mut held: Vec<(bool, u8)> = Vec::new();
+    for e in events {
+        let id = (e.mouse, e.code);
+        held.retain(|h| *h != id);
+        if e.down {
+            held.push(id);
+        }
+    }
+    held
+}
+
+pub fn find_issues(keys: &[KeyEntry], macros: &[Macro]) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    for (index, entry) in keys.iter().enumerate() {
+        let key = index as u8;
+        if *entry == [0xFF; 4] || !KNOWN_KINDS.contains(&entry[0]) {
+            issues.push(Issue::DamagedKey { key, entry: *entry });
+        } else if entry[0] == MACRO_KIND && entry[1] as usize >= macros.len() {
+            issues.push(Issue::MissingMacro { key, slot: entry[1] });
+        }
+    }
+    for (slot, events) in macros.iter().enumerate() {
+        if !events.iter().all(is_valid_macro_event) {
+            issues.push(Issue::BadMacroStep { slot });
+        }
+        let held = held_after(events);
+        if !held.is_empty() {
+            issues.push(Issue::MacroLeavesHeld { slot, codes: held.iter().map(|h| h.1).collect() });
+        }
+    }
+    issues
+}
+
+/// Repairs what `find_issues` reports: damaged or dangling keys go back to factory (or to the
+/// firmware default for slots without a physical key), and macros get their missing releases.
+pub fn repair(keys: &mut [KeyEntry], macros: &mut [Macro]) {
+    for issue in find_issues(keys, macros) {
+        match issue {
+            Issue::DamagedKey { key, .. } | Issue::MissingMacro { key, .. } => {
+                keys[key as usize] = factory_entry(key).unwrap_or([0; 4]);
+            }
+            Issue::MacroLeavesHeld { slot, .. } => {
+                let releases: Vec<MacroEvent> = held_after(&macros[slot])
+                    .into_iter()
+                    .map(|(mouse, code)| MacroEvent { code, down: false, mouse, delay: 20 })
+                    .collect();
+                macros[slot].extend(releases);
+            }
+            Issue::BadMacroStep { slot } => macros[slot].retain(is_valid_macro_event),
         }
     }
 }
@@ -620,6 +697,24 @@ mod tests {
         assert!(!acknowledges(last, &[0x55, 0x22, 0x18, 0xE0, 0x01, 0, 0, 0]));
         assert!(!acknowledges(last, &[0x55, 0x25, 0x08, 0xF8, 0x01, 0, 0, 0]));
         assert!(!acknowledges(last, &[0x55, 0x37, 0, 0, 0, 0, 0, 0]));
+    }
+
+    #[test]
+    fn health_check_finds_and_repairs_damage() {
+        let mut keys: Vec<KeyEntry> = (0..128u8).map(|i| factory_entry(i).unwrap_or([2, 0, 0x65, 0])).collect();
+        keys[6] = [0xFF; 4];
+        keys[7] = [6, 3, 0, 0];
+        keys[13] = [3, 0xE9, 0, 0];
+        let mut macros = vec![vec![MacroEvent { code: 0x04, down: true, mouse: false, delay: 10 }]];
+        let issues = find_issues(&keys, &macros);
+        assert_eq!(issues.len(), 3, "{issues:?}");
+        repair(&mut keys, &mut macros);
+        assert!(find_issues(&keys, &macros).is_empty());
+        assert_eq!(keys[6], factory_entry(6).unwrap());
+        assert_eq!(keys[7], factory_entry(7).unwrap());
+        assert_eq!(keys[13], [3, 0xE9, 0, 0]);
+        assert_eq!(macros[0].len(), 2);
+        assert!(!macros[0][1].down);
     }
 
     #[test]
