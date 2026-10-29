@@ -4,7 +4,7 @@ mod diag;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use aula::protocol::{KeyEntry, KeyboardInfo, Lighting};
+use aula::protocol::{BoardSettings, ClockTime, KeyEntry, KeyboardInfo, Lighting};
 use aula::{device, Error};
 use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Emitter, Manager};
@@ -16,7 +16,17 @@ struct DeviceLock(Mutex<()>);
 const LOCK_WAIT: Duration = Duration::from_secs(3);
 
 /// Commands that change the keyboard; their successes are logged too, not just their failures.
-const WRITES: [&str; 6] = ["write_lighting", "assign_key", "save_macro", "delete_macro", "reset_keys", "repair_keyboard"];
+const WRITES: [&str; 9] = [
+    "write_lighting",
+    "assign_key",
+    "save_macro",
+    "delete_macro",
+    "reset_keys",
+    "repair_keyboard",
+    "write_board",
+    "sync_clock",
+    "factory_reset",
+];
 
 async fn exclusive<T: Send + 'static>(
     app: AppHandle,
@@ -71,6 +81,42 @@ async fn detect_keyboard() -> Result<Option<device::KeyboardSummary>, Error> {
         }
     }
     Ok(found)
+}
+
+#[tauri::command]
+async fn read_board(app: AppHandle) -> Result<BoardSettings, Error> {
+    exclusive(app, "read_board", |_| device::read_board()).await
+}
+
+#[tauri::command]
+async fn write_board(app: AppHandle, settings: BoardSettings) -> Result<BoardSettings, Error> {
+    diag::info(format!("write_board sleep {} min, 24h {}", settings.sleep_minutes, settings.hour24));
+    exclusive(app, "write_board", move |_| device::write_board(settings)).await
+}
+
+#[tauri::command]
+async fn sync_clock(app: AppHandle, time: ClockTime) -> Result<(), Error> {
+    diag::info(format!(
+        "sync_clock {:04}-{:02}-{:02} {:02}:{:02}:{:02} weekday {}",
+        time.year, time.month, time.day, time.hour, time.minute, time.second, time.weekday
+    ));
+    exclusive(app, "sync_clock", move |_| device::sync_clock(&time)).await
+}
+
+#[tauri::command]
+async fn factory_reset(app: AppHandle) -> Result<(), Error> {
+    exclusive(app, "factory_reset", |_| device::factory_reset()).await
+}
+
+#[tauri::command]
+fn open_logs() -> Result<(), String> {
+    let dir = diag::dir();
+    let _ = std::fs::create_dir_all(&dir);
+    std::process::Command::new("explorer")
+        .arg(&dir)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -214,6 +260,11 @@ pub fn run() {
             upload_screen,
             check_keyboard,
             repair_keyboard,
+            read_board,
+            write_board,
+            sync_clock,
+            factory_reset,
+            open_logs,
             log_event,
             save_report
         ])

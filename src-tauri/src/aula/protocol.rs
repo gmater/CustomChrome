@@ -206,6 +206,96 @@ pub fn is_valid_entry(e: &KeyEntry) -> bool {
 
 pub const CMD_READ_MACROS: u8 = 0x15;
 pub const CMD_WRITE_MACROS: u8 = 0x25;
+
+/// Keyboard options the official settings page reads (0x11) and writes (0x21).
+pub const CMD_READ_BOARD: u8 = 0x11;
+pub const CMD_WRITE_BOARD: u8 = 0x21;
+pub const BOARD_LEN: usize = 32;
+pub const BOARD_WRITE_LEN: usize = 16;
+/// Sets the screen clock. Payload is sent with the normal chunked layout.
+pub const CMD_SET_CLOCK: u8 = 0x34;
+/// Factory reset. A direct command, not a chunked table write, and it wipes the keyboard.
+pub const CMD_FACTORY_RESET: u8 = 0x0F;
+const SLEEP_INDEX: usize = 3;
+const HOUR_INDEX: usize = 7;
+pub const SLEEP_MAX_MINUTES: u8 = 30;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardSettings {
+    /// Minutes of idle time before the lights sleep. 0 leaves sleep off.
+    pub sleep_minutes: u8,
+    /// 24-hour clock on the screen. False is the 12-hour clock.
+    pub hour24: bool,
+}
+
+impl BoardSettings {
+    pub fn from_bytes(b: &[u8]) -> Self {
+        let sleep = b.get(SLEEP_INDEX).copied().unwrap_or(0);
+        BoardSettings {
+            sleep_minutes: if sleep == 0 { 0 } else { sleep.min(SLEEP_MAX_MINUTES) },
+            hour24: b.get(HOUR_INDEX).copied().unwrap_or(0) == 0,
+        }
+    }
+
+    /// Changes only sleep and the clock format, leaving every other byte as the keyboard has it.
+    pub fn apply_to(self, current: &[u8; BOARD_WRITE_LEN]) -> [u8; BOARD_WRITE_LEN] {
+        let mut b = *current;
+        b[SLEEP_INDEX] = if self.sleep_minutes == 0 { 0 } else { self.sleep_minutes.min(SLEEP_MAX_MINUTES) };
+        b[HOUR_INDEX] = u8::from(!self.hour24);
+        b
+    }
+}
+
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClockTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+    /// 0 is Sunday, matching the official app's `Date.getDay()`.
+    pub weekday: u8,
+}
+
+/// 20-byte clock payload: 0x5A, 1, 0x5A, then year-within-century, month, day, hour, minute, second, weekday.
+pub fn clock_payload(time: &ClockTime) -> Option<[u8; 20]> {
+    if !(2000..2100).contains(&time.year)
+        || !(1..=12).contains(&time.month)
+        || !(1..=31).contains(&time.day)
+        || time.hour > 23
+        || time.minute > 59
+        || time.second > 59
+        || time.weekday > 6
+    {
+        return None;
+    }
+    let mut payload = [0u8; 20];
+    payload[0] = 0x5A;
+    payload[1] = 1;
+    payload[2] = 0x5A;
+    payload[3] = (time.year % 100) as u8;
+    payload[4] = time.month;
+    payload[5] = time.day;
+    payload[6] = time.hour;
+    payload[7] = time.minute;
+    payload[8] = time.second;
+    payload[9] = time.weekday;
+    Some(payload)
+}
+
+/// A one-shot command whose bytes start at index 2, the layout `sendReportCmd` uses for factory reset.
+pub fn direct_command(cmd: u8, packet_len: usize, data: &[u8]) -> Vec<u8> {
+    let mut packet = vec![0; packet_len];
+    packet[0] = PACKET_MAGIC;
+    packet[1] = cmd;
+    let n = data.len().min(packet_len.saturating_sub(2));
+    packet[2..2 + n].copy_from_slice(&data[..n]);
+    packet
+}
+
 pub const MACRO_AREA_LEN: usize = 1024;
 const MACRO_INDEX_LEN: usize = 400;
 pub const MACRO_COUNT_MAX: usize = MACRO_INDEX_LEN / 4;
@@ -432,6 +522,8 @@ impl Lighting {
 pub struct KeyboardInfo {
     pub firmware: String,
     pub battery: u8,
+    /// True when the keyboard reports it is charging. The official app stores this beside the battery level.
+    pub charging: bool,
     pub max_frames: u16,
 }
 
@@ -442,6 +534,7 @@ pub fn parse_device_info(reply: &[u8]) -> KeyboardInfo {
     KeyboardInfo {
         firmware: format!("{:.2}", version as f64 / 100.0),
         battery: info[17],
+        charging: info[18] == 1,
         max_frames: u16::from_le_bytes([info[22], info[23]]),
     }
 }
@@ -546,7 +639,7 @@ mod tests {
         assert!(is_reply_to(CMD_DEVICE_INFO, &info_reply));
         assert_eq!(
             parse_device_info(&info_reply),
-            KeyboardInfo { firmware: "1.22".into(), battery: 56, max_frames: 104 }
+            KeyboardInfo { firmware: "1.22".into(), battery: 56, charging: false, max_frames: 104 }
         );
 
         let lighting_reply = [
@@ -722,6 +815,44 @@ mod tests {
         assert_eq!(canonical_entry([2, 0xE0, 0, 0]), [2, 0, 0xE0, 0]);
         assert_eq!(canonical_entry([2, 0, 0x04, 0]), [2, 0, 0x04, 0]);
         assert_eq!(canonical_entry([6, 0, 1, 3]), [6, 0, 1, 3]);
+    }
+
+    #[test]
+    fn board_write_changes_only_sleep_and_clock() {
+        let current = [9, 8, 7, 5, 2, 6, 0, 1, 3, 4, 0, 1, 0, 0, 2, 1];
+        let next = BoardSettings { sleep_minutes: 0, hour24: true }.apply_to(&current);
+        assert_eq!(next[3], 0);
+        assert_eq!(next[7], 0);
+        assert_eq!(&next[0..3], &[9, 8, 7]);
+        assert_eq!(&next[4..7], &[2, 6, 0]);
+        assert_eq!(&next[8..], &[3, 4, 0, 1, 0, 0, 2, 1]);
+        assert_eq!(BoardSettings::from_bytes(&next).sleep_minutes, 0);
+        assert!(BoardSettings::from_bytes(&next).hour24);
+        assert_eq!(BoardSettings { sleep_minutes: 99, hour24: false }.apply_to(&current)[3], 30);
+    }
+
+    #[test]
+    fn clock_payload_matches_official_layout() {
+        let payload = clock_payload(&ClockTime {
+            year: 2026,
+            month: 10,
+            day: 27,
+            hour: 16,
+            minute: 5,
+            second: 9,
+            weekday: 2,
+        })
+        .unwrap();
+        assert_eq!(&payload[..10], &[0x5A, 1, 0x5A, 26, 10, 27, 16, 5, 9, 2]);
+        assert!(payload[10..].iter().all(|&b| b == 0));
+        assert!(clock_payload(&ClockTime { year: 1999, month: 1, day: 1, hour: 0, minute: 0, second: 0, weekday: 0 }).is_none());
+    }
+
+    #[test]
+    fn factory_reset_is_a_direct_command() {
+        let packet = direct_command(CMD_FACTORY_RESET, 32, &[0xFF, 0, 0, 0]);
+        assert_eq!(&packet[..6], &[0xAA, 0x0F, 0xFF, 0, 0, 0]);
+        assert!(packet[6..].iter().all(|&b| b == 0));
     }
 
     #[test]

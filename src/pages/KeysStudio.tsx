@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { describe, GROUPS, macroEntry, macroName, MACRO_KIND, MACRO_MODES, sameEntry, type Assignable, type KeyEntry } from "../lib/keycodes";
 import { assignKey, errorText, factoryKeys, loadMacroNames, readMacros, resetKeys, type KeyboardSummary } from "../lib/keyboard";
 import { FN_INDEX, KEYBOARD_UNITS_H, KEYBOARD_UNITS_W, KEYS, SCREEN, STRIP } from "../lib/layout";
@@ -23,6 +23,8 @@ export default function KeysStudio({ keyboard }: Props) {
   const [macroCount, setMacroCount] = useState(0);
   const [macroMode, setMacroMode] = useState(0);
   const [repeats, setRepeats] = useState(3);
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const summaryRef = useRef<HTMLDivElement>(null);
   const macroNames = useMemo(loadMacroNames, [keyboard]);
 
   const keyboardKey = keyboard?.supported ? `${keyboard.connection}:${keyboard.name}` : "";
@@ -62,6 +64,19 @@ export default function KeysStudio({ keyboard }: Props) {
   };
 
   const remappedCount = useMemo(() => KEYS.filter((k) => k.index !== FN_INDEX && isRemapped(k.index)).length, [entries, factory]);
+  const remappedKeys = useMemo(
+    () => KEYS.filter((k) => k.index !== FN_INDEX && isRemapped(k.index)),
+    [entries, factory],
+  );
+
+  useEffect(() => {
+    if (!summaryOpen) return;
+    const close = (event: PointerEvent) => {
+      if (!summaryRef.current?.contains(event.target as Node)) setSummaryOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    return () => window.removeEventListener("pointerdown", close);
+  }, [summaryOpen]);
 
   const macroItems: Assignable[] = useMemo(
     () => Array.from({ length: macroCount }, (_, i) => ({ label: macroName(macroNames, i), entry: macroEntry(i, macroMode, repeats) })),
@@ -133,7 +148,7 @@ export default function KeysStudio({ keyboard }: Props) {
   const selectedKey = KEYS.find((k) => k.index === selected);
   const current = selected != null ? entries[selected] : null;
   const statusText =
-    typeof status === "object" ? status.error : status === "saving" ? "Saving…" : status === "saved" ? "Saved to keyboard" : `${remappedCount} remapped`;
+    typeof status === "object" ? status.error : status === "saving" ? "Saving…" : status === "saved" ? "Saved to keyboard" : `Remapped keys: ${remappedCount}`;
 
   return (
     <section className="page">
@@ -182,10 +197,43 @@ export default function KeysStudio({ keyboard }: Props) {
         </div>
         <div className="hero-foot">
           <span className="hero-effect">{selectedKey ? `${selectedKey.label || "Space"} → ${describe(current!, macroNames)}` : "Select a key"}</span>
-          <span className={`save-pill ${typeof status === "object" ? "err" : status}`}>
-            <i />
-            {statusText}
-          </span>
+          <div className="remap-summary" ref={summaryRef}>
+            {status === "idle" ? (
+              <button className={`save-pill ${summaryOpen ? "open" : ""}`} onClick={() => setSummaryOpen((open) => !open)}>
+                <i />
+                {statusText}
+              </button>
+            ) : (
+              <span className={`save-pill ${typeof status === "object" ? "err" : status}`}>
+                <i />
+                {statusText}
+              </span>
+            )}
+            {summaryOpen && status === "idle" && (
+              <div className="remap-pop">
+                <strong>Remapped keys</strong>
+                {remappedKeys.length === 0 ? (
+                  <p>No keys are remapped.</p>
+                ) : (
+                  <ul>
+                    {remappedKeys.map((k) => (
+                      <li key={k.index}>
+                        <button
+                          onClick={() => {
+                            select(k.index);
+                            setSummaryOpen(false);
+                          }}
+                        >
+                          <span>{k.label || "Space"}</span>
+                          <b>{describe(entries[k.index], macroNames)}</b>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

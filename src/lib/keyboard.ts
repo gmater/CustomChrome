@@ -23,6 +23,7 @@ export interface Lighting {
 export interface KeyboardInfo {
   firmware: string;
   battery: number;
+  charging: boolean;
   maxFrames: number;
 }
 
@@ -93,6 +94,31 @@ export const assignKey = (index: number, entry: KeyEntry | null) => invoke<KeyEn
 export const resetKeys = () => invoke<KeyEntry[]>("reset_keys");
 
 export const readLighting = () => invoke<Lighting>("read_lighting");
+
+export interface BoardSettings {
+  sleepMinutes: number;
+  hour24: boolean;
+}
+
+export interface ClockTime {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  second: number;
+  weekday: number;
+}
+
+export const readBoard = () => invoke<BoardSettings>("read_board");
+
+export const writeBoard = (settings: BoardSettings) => invoke<BoardSettings>("write_board", { settings });
+
+export const syncClock = (time: ClockTime) => invoke<void>("sync_clock", { time });
+
+export const factoryReset = () => invoke<void>("factory_reset");
+
+export const openLogs = () => invoke<void>("open_logs");
 
 export const writeLighting = (lighting: Lighting) => invoke<Lighting>("write_lighting", { lighting });
 

@@ -1,7 +1,26 @@
 export type DirectionAxis = "horizontal" | "vertical";
 
-/** How the on-screen preview animates an effect; an approximation of the firmware's pattern. */
-export type Motion = "static" | "breathe" | "spectrum" | "wave" | "bounce" | "center" | "twinkle" | "reactive" | "reactive-off";
+/** How the on-screen preview animates an effect, matching the F99 MAX firmware patterns. */
+export type Motion =
+  | "static"
+  | "on"
+  | "quench"
+  | "twinkle"
+  | "snow"
+  | "blossom"
+  | "breathe"
+  | "spectrum"
+  | "fountain"
+  | "cross"
+  | "wave"
+  | "peaks"
+  | "burst"
+  | "split"
+  | "ripple"
+  | "flow"
+  | "ridges"
+  | "rain"
+  | "bounce";
 
 export interface Effect {
   id: number;
@@ -17,23 +36,23 @@ export const LEVEL_MAX = 6;
 
 export const EFFECTS: Effect[] = [
   { id: 0x01, name: "Static", usesColor: true, hasSpeed: false, motion: "static" },
-  { id: 0x02, name: "Single key on", usesColor: true, hasSpeed: true, motion: "reactive" },
-  { id: 0x03, name: "Single key off", usesColor: true, hasSpeed: true, motion: "reactive-off" },
+  { id: 0x02, name: "Single key on", usesColor: true, hasSpeed: true, motion: "on" },
+  { id: 0x03, name: "Single key off", usesColor: true, hasSpeed: true, motion: "quench" },
   { id: 0x04, name: "Starry sky", usesColor: true, hasSpeed: true, motion: "twinkle" },
-  { id: 0x05, name: "Snowfall", usesColor: true, hasSpeed: true, motion: "twinkle" },
-  { id: 0x06, name: "Blossom", usesColor: false, hasSpeed: true, motion: "twinkle" },
+  { id: 0x05, name: "Snowfall", usesColor: true, hasSpeed: true, motion: "snow" },
+  { id: 0x06, name: "Blossom", usesColor: false, hasSpeed: true, motion: "blossom" },
   { id: 0x07, name: "Breathing", usesColor: true, hasSpeed: true, motion: "breathe" },
   { id: 0x08, name: "Spectrum cycle", usesColor: false, hasSpeed: true, motion: "spectrum" },
-  { id: 0x09, name: "Colour fountain", usesColor: true, hasSpeed: true, motion: "center" },
-  { id: 0x0a, name: "Colour crossing", usesColor: true, hasSpeed: true, direction: "vertical", motion: "wave" },
+  { id: 0x09, name: "Colour fountain", usesColor: true, hasSpeed: true, motion: "fountain" },
+  { id: 0x0a, name: "Colour crossing", usesColor: true, hasSpeed: true, direction: "vertical", motion: "cross" },
   { id: 0x0b, name: "Wave", usesColor: true, hasSpeed: true, direction: "horizontal", motion: "wave" },
-  { id: 0x0c, name: "Turning peaks", usesColor: true, hasSpeed: true, direction: "horizontal", motion: "wave" },
-  { id: 0x0d, name: "One touch fire", usesColor: true, hasSpeed: true, motion: "reactive" },
-  { id: 0x0e, name: "Two birds", usesColor: true, hasSpeed: true, motion: "reactive" },
-  { id: 0x0f, name: "Ripples", usesColor: true, hasSpeed: true, motion: "reactive" },
-  { id: 0x10, name: "Endless flow", usesColor: true, hasSpeed: true, direction: "horizontal", motion: "wave" },
-  { id: 0x11, name: "Layered mountains", usesColor: true, hasSpeed: true, motion: "center" },
-  { id: 0x12, name: "Gentle rain", usesColor: true, hasSpeed: true, direction: "horizontal", motion: "twinkle" },
+  { id: 0x0c, name: "Turning peaks", usesColor: true, hasSpeed: true, direction: "horizontal", motion: "peaks" },
+  { id: 0x0d, name: "One touch fire", usesColor: true, hasSpeed: true, motion: "burst" },
+  { id: 0x0e, name: "Two birds", usesColor: true, hasSpeed: true, motion: "split" },
+  { id: 0x0f, name: "Ripples", usesColor: true, hasSpeed: true, motion: "ripple" },
+  { id: 0x10, name: "Endless flow", usesColor: true, hasSpeed: true, direction: "horizontal", motion: "flow" },
+  { id: 0x11, name: "Layered mountains", usesColor: true, hasSpeed: true, motion: "ridges" },
+  { id: 0x12, name: "Gentle rain", usesColor: true, hasSpeed: true, direction: "horizontal", motion: "rain" },
   { id: 0x13, name: "Back and forth", usesColor: true, hasSpeed: true, motion: "bounce" },
 ];
 

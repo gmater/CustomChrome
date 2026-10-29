@@ -9,6 +9,8 @@ interface Props {
   on: boolean;
 }
 
+const PRESS = new Set(["on", "quench", "burst", "split", "ripple"]);
+
 const pct = (v: number, of: number) => `${(v / of) * 100}%`;
 const seeded = (i: number) => {
   const s = Math.sin(i * 12.9898) * 43758.5453;
@@ -37,7 +39,7 @@ export function fxStyle(lighting: Lighting): CSSProperties {
 
 export default function KeyboardPreview({ lighting, effect, on }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const reactive = on && (effect?.motion === "reactive" || effect?.motion === "reactive-off");
+  const motion = on ? effect?.motion : undefined;
 
   const keys = useMemo(
     () =>
@@ -46,6 +48,8 @@ export default function KeyboardPreview({ lighting, effect, on }: Props) {
         const cy = (k.y + 0.5) / KEYBOARD_UNITS_H;
         return {
           ...k,
+          nx: cx.toFixed(3),
+          ny: cy.toFixed(3),
           style: {
             left: pct(k.x, KEYBOARD_UNITS_W),
             top: pct(k.y, KEYBOARD_UNITS_H),
@@ -62,29 +66,84 @@ export default function KeyboardPreview({ lighting, effect, on }: Props) {
   );
 
   useEffect(() => {
-    if (!reactive) return;
+    if (!motion || !PRESS.has(motion)) return;
     const root = ref.current!;
-    const flash = (el: Element | null | undefined) => {
-      if (!el) return;
-      el.classList.remove("hit");
-      void (el as HTMLElement).offsetWidth;
-      el.classList.add("hit");
+    const pending = new Set<number>();
+    const flash = (el: Element, delay = 0) => {
+      const go = () => {
+        el.classList.remove("hit");
+        void (el as HTMLElement).offsetWidth;
+        el.classList.add("hit");
+      };
+      if (delay <= 0) go();
+      else pending.add(window.setTimeout(go, delay));
     };
-    const onKey = (e: KeyboardEvent) => flash(root.querySelector(`[data-code="${e.code}"]`));
+    const play = (origin: Element) => {
+      const ox = Number((origin as HTMLElement).dataset.x);
+      const oy = Number((origin as HTMLElement).dataset.y);
+      const all = [...root.querySelectorAll<HTMLElement>(".key")];
+      const place = (el: HTMLElement) => {
+        const dx = Number(el.dataset.x) - ox;
+        const dy = Number(el.dataset.y) - oy;
+        return { dx, dy, d: Math.hypot(dx, dy * 1.5) };
+      };
+      const travel = 7200 / Math.max(1, lighting.speed);
+      if (motion === "on" || motion === "quench") flash(origin);
+      else if (motion === "burst") all.forEach((el) => {
+        const { dx, dy } = place(el);
+        if (Math.abs(dy) < 0.08) flash(el, Math.abs(dx) * travel);
+      });
+      else if (motion === "split") all.forEach((el) => {
+        const { dx, dy } = place(el);
+        if (Math.abs(dy) < 0.09) flash(el, Math.abs(dx) * 420);
+      });
+      else all.forEach((el) => flash(el, place(el).d * 380));
+    };
+    const onKey = (e: KeyboardEvent) => {
+      const el = root.querySelector(`[data-code="${CSS.escape(e.code)}"]`);
+      if (el) play(el);
+    };
     const all = root.querySelectorAll(".key");
-    const timer = setInterval(() => flash(all[Math.floor(Math.random() * all.length)]), 9000 / (lighting.speed + 6));
+    const timer = window.setInterval(() => play(all[Math.floor(Math.random() * all.length)]), 7000 / (lighting.speed + 4));
     window.addEventListener("keydown", onKey);
     return () => {
       clearInterval(timer);
+      pending.forEach((id) => clearTimeout(id));
       window.removeEventListener("keydown", onKey);
     };
-  }, [reactive, lighting.speed]);
+  }, [motion, lighting.speed]);
+
+  useEffect(() => {
+    if (motion !== "twinkle") return;
+    const root = ref.current!;
+    const gap = 7200 / Math.max(1, lighting.speed) / 5;
+    root.style.setProperty("--star", `${gap}ms`);
+    const all = [...root.querySelectorAll<HTMLElement>(".key")];
+    let current: HTMLElement | null = null;
+    const hop = () => {
+      if (!all.length) return;
+      let next = all[Math.floor(Math.random() * all.length)];
+      if (all.length > 1) {
+        while (next === current) next = all[Math.floor(Math.random() * all.length)];
+      }
+      if (current) current.classList.remove("star");
+      current = next;
+      void current.offsetWidth;
+      current.classList.add("star");
+    };
+    hop();
+    const timer = window.setInterval(hop, gap);
+    return () => {
+      clearInterval(timer);
+      if (current) current.classList.remove("star");
+    };
+  }, [motion, lighting.speed]);
 
   return (
     <div ref={ref} className={`kb ${fxClasses(effect, lighting, on)}`} style={fxStyle(lighting)}>
       <div className="kb-plate">
         {keys.map((k, i) => (
-          <div key={i} className="key" data-code={k.code} style={k.style}>
+          <div key={i} className="key" data-code={k.code} data-x={k.nx} data-y={k.ny} style={k.style}>
             <span className="cap">
               <span className="led-wrap">
                 <span className="led" />
@@ -126,7 +185,7 @@ export function MiniPreview({ effect, lighting }: { effect: Effect; lighting: Li
         <span
           key={i}
           className="key"
-          style={{ "--x": (i / 6).toFixed(3), "--y": "0.5", "--r": seeded(i + 40).toFixed(3), "--d": (Math.abs(i - 3) / 3).toFixed(3) } as CSSProperties}
+          style={{ "--x": (i / 6).toFixed(3), "--y": (i / 6).toFixed(3), "--r": seeded(i + 40).toFixed(3), "--d": (Math.abs(i - 3) / 3).toFixed(3) } as CSSProperties}
         >
           <span className="led-wrap">
             <span className="led" />

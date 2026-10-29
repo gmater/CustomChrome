@@ -1,21 +1,27 @@
 import { useEffect, useState } from "react";
-import { describeIssues, HealthBanner, ReportDialog } from "./components/Health";
+import BatteryIcon from "./components/BatteryIcon";
+import { describeIssues, HealthBanner } from "./components/Health";
 import { checkKeyboard, detectKeyboard, keyboardInfo, type Health, type KeyboardInfo, type KeyboardSummary } from "./lib/keyboard";
-
-/** Lets the page read the keyboard first, so the check doesn't hold it up. */
-const CHECK_DELAY_MS = 2500;
+import { accentColor, applyAccent, LAST_PAGE_KEY, loadKeyLook, loadPrefs, type AppPrefs } from "./lib/prefs";
 import KeysStudio from "./pages/KeysStudio";
 import LightingStudio from "./pages/LightingStudio";
 import MacrosStudio from "./pages/MacrosStudio";
 import ScreenStudio from "./pages/ScreenStudio";
+import SettingsStudio from "./pages/SettingsStudio";
 
-type Page = "screen" | "lighting" | "keys" | "macros";
+/** Lets the page read the keyboard first, so the check doesn't hold it up. */
+const CHECK_DELAY_MS = 2500;
+
+type Page = "screen" | "lighting" | "keys" | "macros" | "settings";
+
+const PAGES: Page[] = ["screen", "lighting", "keys", "macros", "settings"];
 
 const NAV: { id: Page; label: string; ready: boolean; icon: string }[] = [
   { id: "screen", label: "Screen", ready: true, icon: "M3 5h18v12H3zM8 21h8M12 17v4" },
   { id: "lighting", label: "Lighting", ready: true, icon: "M12 3v2M5.6 5.6l1.4 1.4M3 12h2M12 8a4 4 0 0 1 2 7.5V18h-4v-2.5A4 4 0 0 1 12 8zM10 21h4" },
   { id: "keys", label: "Keys", ready: true, icon: "M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8" },
   { id: "macros", label: "Macros", ready: true, icon: "M5 4l14 8-14 8z" },
+  { id: "settings", label: "Settings", ready: true, icon: "M4 7h16M4 12h16M4 17h10" },
 ];
 
 function Icon({ d }: { d: string }) {
@@ -27,7 +33,12 @@ function Icon({ d }: { d: string }) {
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>("screen");
+  const [prefs, setPrefs] = useState<AppPrefs>(loadPrefs);
+  const [page, setPage] = useState<Page>(() => {
+    const saved = localStorage.getItem(LAST_PAGE_KEY);
+    return loadPrefs().rememberPage && PAGES.includes(saved as Page) ? (saved as Page) : "screen";
+  });
+  const [keyLook, setKeyLook] = useState(loadKeyLook);
   const [keyboard, setKeyboard] = useState<KeyboardSummary | null>(null);
   const [info, setInfo] = useState<KeyboardInfo | null>(null);
 
@@ -56,8 +67,21 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (prefs.rememberPage) localStorage.setItem(LAST_PAGE_KEY, page);
+  }, [page, prefs.rememberPage]);
+
+  useEffect(() => {
+    const onColor = (event: Event) => setKeyLook((event as CustomEvent<typeof keyLook>).detail);
+    window.addEventListener("key-color", onColor);
+    return () => window.removeEventListener("key-color", onColor);
+  }, []);
+
+  useEffect(() => {
+    if (page !== "lighting") applyAccent(accentColor(prefs, keyLook));
+  }, [page, prefs, keyLook]);
+
   const [health, setHealth] = useState<Health | null>(null);
-  const [reporting, setReporting] = useState(false);
   const supportedKey = keyboard?.supported ? `${keyboard.connection}:${keyboard.name}` : "";
 
   useEffect(() => {
@@ -75,15 +99,27 @@ export default function App() {
     };
   }, [supportedKey, page]);
 
+  useEffect(() => {
+    if (!supportedKey) return;
+    let alive = true;
+    const timer = setInterval(() => {
+      keyboardInfo()
+        .then((next) => alive && setInfo(next))
+        .catch(() => {});
+    }, 30000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [supportedKey]);
+
   const reportContext = () =>
     JSON.stringify({ keyboard, info, page, health, issues: health ? describeIssues(health.issues) : null }, null, 2);
-
-  const current = NAV.find((n) => n.id === page)!;
 
   let detail = "Plug in the keyboard";
   if (keyboard && !keyboard.supported) detail = "Not an F99 MAX";
   else if (keyboard?.connection === "wired") detail = `USB cable${info ? ` · firmware ${info.firmware}` : ""}`;
-  else if (keyboard) detail = `Wireless${info ? ` · battery ${info.battery}%` : ""}`;
+  else if (keyboard) detail = "Wireless";
 
   return (
     <div className="shell">
@@ -112,13 +148,11 @@ export default function App() {
             <strong>{keyboard ? (keyboard.supported ? "AULA F99 MAX" : keyboard.name) : "No keyboard"}</strong>
             <small>{detail}</small>
           </div>
+          {keyboard?.supported && info && (
+            <BatteryIcon level={info.battery} charging={info.charging} percent={prefs.batteryStyle} />
+          )}
         </div>
-        <button className="report-link" onClick={() => setReporting(true)}>
-          Report a problem
-        </button>
       </aside>
-
-      {reporting && <ReportDialog context={reportContext} onClose={() => setReporting(false)} />}
 
       <main className="content">
         {health && <HealthBanner health={health} onFixed={setHealth} />}
@@ -131,11 +165,7 @@ export default function App() {
         ) : page === "macros" ? (
           <MacrosStudio keyboard={keyboard} />
         ) : (
-          <section className="placeholder">
-            <Icon d={current.icon} />
-            <h1>{current.label}</h1>
-            <p>This page is coming in a later version. The official app's {current.label.toLowerCase()} protocol is already decoded.</p>
-          </section>
+          <SettingsStudio keyboard={keyboard} info={info} reportContext={reportContext} prefs={prefs} onPrefs={setPrefs} />
         )}
       </main>
     </div>

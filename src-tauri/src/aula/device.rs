@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use hidapi::{DeviceInfo, HidApi, HidDevice};
 use serde::Serialize;
 
-use super::protocol::{self, KeyEntry, KeyboardInfo, Lighting, Macro, LIGHTING_LEN};
+use super::protocol::{self, BoardSettings, ClockTime, KeyEntry, KeyboardInfo, Lighting, Macro, BOARD_LEN, BOARD_WRITE_LEN, LIGHTING_LEN};
 use super::{Error, Result};
 use crate::diag;
 
@@ -186,6 +186,15 @@ impl Control {
             protocol::is_reply_to(protocol::CMD_READ_LIGHTING, r)
         })?;
         let mut bytes = [0u8; LIGHTING_LEN];
+        protocol::merge_reply(&reply, &mut bytes);
+        Ok(bytes)
+    }
+
+    fn read_board_bytes(&self) -> Result<[u8; BOARD_LEN]> {
+        let reply = self.transact(protocol::CMD_READ_BOARD, &[], |r| {
+            protocol::is_reply_to(protocol::CMD_READ_BOARD, r)
+        })?;
+        let mut bytes = [0u8; BOARD_LEN];
         protocol::merge_reply(&reply, &mut bytes);
         Ok(bytes)
     }
@@ -404,6 +413,54 @@ pub fn reset_keys() -> Result<Vec<KeyEntry>> {
     }
     control.write_key_table(&table)?;
     Ok(key_entries(&table))
+}
+
+pub fn read_board() -> Result<BoardSettings> {
+    let api = HidApi::new()?;
+    let bytes = open_control(&api, connected(&api)?)?.read_board_bytes()?;
+    Ok(BoardSettings::from_bytes(&bytes))
+}
+
+pub fn write_board(settings: BoardSettings) -> Result<BoardSettings> {
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let current = control.read_board_bytes()?;
+    let mut head = [0u8; BOARD_WRITE_LEN];
+    head.copy_from_slice(&current[..BOARD_WRITE_LEN]);
+    let next = settings.apply_to(&head);
+    control.transact(protocol::CMD_WRITE_BOARD, &next, |r| r.len() > 1 && r[1] != protocol::CMD_STATUS)?;
+    let back = control.read_board_bytes().unwrap_or(current);
+    if back[3] != next[3] || back[7] != next[7] {
+        diag::warn(format!(
+            "board read-back sleep {:02X}/hour {:02X}, wrote {:02X}/{:02X}",
+            back[3], back[7], next[3], next[7]
+        ));
+    }
+    Ok(BoardSettings::from_bytes(&next))
+}
+
+pub fn sync_clock(time: &ClockTime) -> Result<()> {
+    let payload = protocol::clock_payload(time).ok_or(Error::InvalidSetting)?;
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    control.transact(protocol::CMD_SET_CLOCK, &payload, |r| r.len() > 1 && r[1] != protocol::CMD_STATUS)?;
+    Ok(())
+}
+
+/// Wipes lighting, keys, macros and the screen back to factory. The caller must already have confirmed it.
+pub fn factory_reset() -> Result<()> {
+    diag::warn("factory reset requested");
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let packet = protocol::direct_command(protocol::CMD_FACTORY_RESET, control.packet_len, &[0xFF, 0, 0, 0]);
+    control.drain()?;
+    write_report(&control.device, &packet)?;
+    match wait_within(&control.device, CHUNK_TIMEOUT, |r| r.len() > 1 && r[1] != protocol::CMD_STATUS) {
+        Ok(_) => diag::info("factory reset acknowledged"),
+        Err(Error::Timeout) => diag::warn("factory reset sent, no acknowledgement"),
+        Err(e) => return Err(e),
+    }
+    Ok(())
 }
 
 pub fn read_info() -> Result<KeyboardInfo> {

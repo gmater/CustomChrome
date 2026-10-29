@@ -64,9 +64,19 @@ export function installMockKeyboard() {
       case "detect_keyboard":
         return { name: "F99 MAX Dongle", connection: "dongle", supported: true, screenUpload: false };
       case "keyboard_info":
-        return { firmware: "1.22", battery: 56, maxFrames: 104 };
+        return { firmware: "1.22", battery: 56, charging: false, maxFrames: 104 };
       case "read_lighting":
         return lighting;
+      case "read_board":
+        return { sleepMinutes: 5, hour24: true };
+      case "write_board":
+        return later((args as { settings: { sleepMinutes: number; hour24: boolean } }).settings);
+      case "sync_clock":
+        return later(null);
+      case "factory_reset":
+        return later(null);
+      case "open_logs":
+        return null;
       case "write_lighting":
         lighting = (args as { lighting: typeof lighting }).lighting;
         return new Promise((resolve) => setTimeout(() => resolve(lighting), 150));

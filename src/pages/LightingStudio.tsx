@@ -77,8 +77,9 @@ export default function LightingStudio({ keyboard }: Props) {
 
   useEffect(() => {
     if (!lighting) return;
-    const root = document.documentElement.style;
-    root.setProperty("--live", lighting.rainbow ? "#8b7cff" : toHex(lighting.color));
+    const color = lighting.rainbow ? "#8b7cff" : toHex(lighting.color);
+    document.documentElement.style.setProperty("--live", color);
+    window.dispatchEvent(new CustomEvent("key-color", { detail: { color: toHex(lighting.color), rainbow: lighting.rainbow } }));
   }, [lighting]);
 
   const flush = useCallback(async () => {

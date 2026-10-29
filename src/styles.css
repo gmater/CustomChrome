@@ -193,6 +193,93 @@ nav {
   box-shadow: 0 0 10px var(--err);
 }
 
+.battery {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  color: var(--text);
+}
+
+.battery-pct {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.battery-shell {
+  display: inline-flex;
+  align-items: center;
+}
+
+.battery-body {
+  position: relative;
+  width: 24px;
+  height: 12px;
+  padding: 1.5px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.battery.inside .battery-body {
+  width: 28px;
+}
+
+.battery-fill {
+  display: block;
+  height: 100%;
+  border-radius: 1px;
+  background: currentColor;
+}
+
+.battery.low {
+  color: var(--err);
+}
+
+.battery-nub {
+  width: 2px;
+  height: 5px;
+  margin-left: 1px;
+  border-radius: 0 1px 1px 0;
+  background: currentColor;
+}
+
+.battery-in {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  text-shadow: 0 0 2px #000, 0 0 2px #000;
+}
+
+.battery-bolt {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 9px;
+  height: 9px;
+  fill: #fff;
+  stroke: #111;
+  stroke-width: 1.5;
+  transform: translate(-50%, -50%);
+}
+
+.battery-setting {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.battery-setting .battery {
+  margin-left: 0;
+}
+
 .content {
   position: relative;
   overflow: auto;
@@ -631,7 +718,7 @@ input[type="range"]::-webkit-slider-thumb {
 .hero {
   margin-top: 22px;
   padding: 26px 26px 16px;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .hero-foot {
@@ -652,10 +739,84 @@ input[type="range"]::-webkit-slider-thumb {
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
+  border: 0;
   border-radius: 99px;
   background: rgba(255, 255, 255, 0.05);
   color: var(--muted);
   font-size: 12.5px;
+}
+
+.save-pill.open,
+.save-pill:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text);
+}
+
+.remap-summary {
+  position: relative;
+}
+
+.remap-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 10px);
+  z-index: 5;
+  width: 240px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: rgba(22, 24, 33, 0.96);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.remap-pop strong {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.remap-pop p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.remap-pop ul {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.remap-pop button {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+}
+
+.remap-pop button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.remap-pop button span {
+  color: var(--muted);
+}
+
+.remap-pop button b {
+  font-weight: 600;
 }
 
 .save-pill i {
@@ -1288,6 +1449,90 @@ kbd {
   word-break: break-all;
 }
 
+/* settings */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.settings .banner {
+  margin: 0 0 12px;
+}
+
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+.setting-row:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.setting-row b {
+  display: block;
+  font-weight: 600;
+}
+
+.setting-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.setting-row > span {
+  flex: none;
+  color: var(--muted);
+}
+
+.setting-actions,
+.sleep-control {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+}
+
+.accents {
+  display: flex;
+  gap: 8px;
+}
+
+.accents button {
+  width: 22px;
+  height: 22px;
+  border: 2px solid transparent;
+  border-radius: 50%;
+}
+
+.accents button.on {
+  border-color: #fff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15);
+}
+
+.accents button.rainbow {
+  background: conic-gradient(#ff3b6b, #ffb23b, #3bff9d, #3bb9ff, #b03bff, #ff3b6b);
+}
+
+.danger-card {
+  border-color: rgba(255, 107, 122, 0.28);
+}
+
+.reset-type {
+  margin: 12px 0;
+}
+
+.settings .dimmed {
+  opacity: 0.55;
+}
+
 /* macros */
 .page-header .primary {
   margin: 0;
@@ -1652,6 +1897,10 @@ kbd {
   --kc: hsl(var(--hue) 95% 60%);
 }
 
+.fx-blossom .key {
+  --kc: hsl(calc(var(--r) * 360 + var(--hue)) 85% 58%);
+}
+
 .fx-twinkle.rainbow .key {
   --kc: hsl(calc(var(--r) * 360 + var(--hue)) 95% 62%);
 }
@@ -1662,9 +1911,14 @@ kbd {
 }
 
 .fx-spectrum,
+.fx-blossom,
 .fx-wave.rainbow,
 .fx-bounce.rainbow,
-.fx-center.rainbow {
+.fx-flow.rainbow,
+.fx-fountain.rainbow,
+.fx-cross.rainbow,
+.fx-peaks.rainbow,
+.fx-ridges.rainbow {
   animation: hue calc(var(--dur) * 2.5) linear infinite;
 }
 
@@ -1673,21 +1927,32 @@ kbd {
 }
 
 .fx-wave .key,
-.fx-bounce .key {
+.fx-bounce .key,
+.fx-flow .key {
   --p: var(--x);
 }
 
-.fx-wave.axis-y .key {
+.fx-wave.axis-y .key,
+.fx-cross .key,
+.fx-fountain .key,
+.fx-snow .key,
+.fx-rain .key,
+.fx-ridges .key {
   --p: var(--y);
 }
 
-.fx-wave .led {
+.fx-peaks .key {
+  --p: calc(var(--x) * 0.65 + var(--y) * 0.35);
+}
+
+.fx-wave .led,
+.fx-fountain .led {
   animation: band var(--dur) linear infinite;
   animation-delay: calc(var(--p) * var(--dur) * -1);
 }
 
-.fx-wave.reverse .led {
-  animation-delay: calc((1 - var(--p)) * var(--dur) * -1);
+.fx-fountain .led {
+  animation-delay: calc((1 - var(--y)) * var(--dur) * -1);
 }
 
 .fx-bounce .led {
@@ -1695,27 +1960,87 @@ kbd {
   animation-delay: calc(var(--p) * var(--dur) * -1);
 }
 
-.fx-center .led {
+.fx-flow .led {
+  animation: flow var(--dur) linear infinite;
+  animation-delay: calc(var(--p) * var(--dur) * -1);
+}
+
+.fx-cross .led {
   animation: band var(--dur) linear infinite;
-  animation-delay: calc((var(--d) - 1) * var(--dur));
+  animation-delay: calc(var(--y) * var(--dur) * -1);
+}
+
+.fx-cross .key:nth-child(odd) .led {
+  animation-direction: reverse;
+}
+
+.fx-peaks .led {
+  animation: peaks var(--dur) linear infinite;
+  animation-delay: calc(var(--p) * var(--dur) * -1);
+}
+
+.fx-ridges .led {
+  animation: ridges var(--dur) linear infinite;
+  animation-delay: calc(var(--y) * var(--dur) * -1);
+}
+
+.fx-snow .led,
+.fx-rain .led {
+  animation: fall var(--dur) linear infinite;
+  animation-delay: calc((var(--y) * 0.8 + var(--r) * 0.45) * var(--dur) * -1);
+}
+
+.fx-rain .led {
+  animation-delay: calc((var(--y) * 0.7 + var(--x) * 0.3 + var(--r) * 0.2) * var(--dur) * -1);
+}
+
+.fx-wave.reverse .led,
+.fx-flow.reverse .led,
+.fx-peaks.reverse .led,
+.fx-bounce.reverse .led {
+  animation-delay: calc((1 - var(--p)) * var(--dur) * -1);
+}
+
+.fx-rain.reverse .led {
+  animation-delay: calc((var(--y) * 0.7 + (1 - var(--x)) * 0.3 + var(--r) * 0.2) * var(--dur) * -1);
+}
+
+.fx-cross.reverse .led {
+  animation-direction: reverse;
+}
+
+.fx-cross.reverse .key:nth-child(odd) .led {
+  animation-direction: normal;
 }
 
 .fx-twinkle .led {
-  opacity: 0.1;
-  animation: twinkle calc(var(--dur) * (0.8 + var(--r))) ease-in-out infinite;
-  animation-delay: calc(var(--r) * var(--dur) * -3);
+  opacity: 1;
 }
 
-.fx-reactive .led {
-  opacity: 0.06;
+.fx-twinkle .key.star .led {
+  animation: star-once var(--star, 0.48s) ease-in-out;
 }
 
-.fx-reactive .key.hit .led {
-  animation: flash calc(var(--dur) * 0.35 + 0.25s) ease-out;
+.fx-on .led,
+.fx-burst .led,
+.fx-split .led,
+.fx-ripple .led {
+  opacity: 0.05;
 }
 
-.fx-reactive-off .key.hit .led {
-  animation: flash-off calc(var(--dur) * 0.35 + 0.25s) ease-out;
+.fx-quench .led {
+  opacity: 1;
+}
+
+.fx-on .key.hit .led,
+.fx-burst .key.hit .led,
+.fx-split .key.hit .led,
+.fx-ripple .key.hit .led {
+  animation: flash calc(var(--dur) * 0.45 + 0.2s) ease-out;
+}
+
+.fx-quench .key.hit .led {
+  animation: flash-off calc(var(--dur) * 0.45 + 0.2s) ease-out;
 }
 
 /* mini previews on effect cards */
@@ -1735,27 +2060,134 @@ kbd {
   background: #1d2028;
 }
 
-.mini.fx-reactive .led,
-.mini.fx-reactive-off .led {
-  opacity: 0.08;
-  animation: twinkle calc(var(--dur) * (0.8 + var(--r))) ease-in-out infinite;
-  animation-delay: calc(var(--r) * var(--dur) * -3);
-}
-
-.mini.fx-reactive-off .led {
-  opacity: 1;
-  animation-name: twinkle-off;
-}
-
 .mini .led {
   background: var(--kc);
   box-shadow: 0 0 6px var(--kc);
   mix-blend-mode: normal;
 }
 
+.mini.fx-twinkle .led {
+  animation: star-hop var(--dur) linear infinite;
+  animation-delay: calc(var(--x) * var(--dur) * -0.86);
+}
+
+.mini.fx-on .key:nth-child(4) .led {
+  animation: flash calc(var(--dur) * 0.8) ease-out infinite;
+}
+
+.mini.fx-burst .led {
+  animation: flash calc(var(--dur) * 0.55) ease-out infinite;
+  animation-delay: calc(abs(var(--x) - 0.5) * var(--dur));
+}
+
+.mini.fx-quench .led {
+  opacity: 1;
+}
+
+.mini.fx-quench .key:nth-child(4) .led {
+  animation: flash-off calc(var(--dur) * 0.8) ease-out infinite;
+}
+
+.mini.fx-split .led,
+.mini.fx-ripple .led {
+  opacity: 0.08;
+  animation: band var(--dur) linear infinite;
+  animation-delay: calc(abs(var(--x) - 0.5) * var(--dur) * -2);
+}
+
+.mini.fx-ripple .led {
+  animation-name: ring;
+}
+
+/* Option previews stay still until that effect is on, or the pointer is over it. */
+.effect .mini,
+.effect .mini .led {
+  animation-play-state: paused;
+}
+
+.effect:hover .mini,
+.effect:hover .mini .led,
+.effect.on .mini,
+.effect.on .mini .led {
+  animation-play-state: running;
+}
+
 @keyframes hue {
   to {
     --hue: 360;
+  }
+}
+
+@keyframes flow {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  45% {
+    opacity: 1;
+  }
+}
+
+@keyframes peaks {
+  0%,
+  100% {
+    opacity: 0.12;
+  }
+  18% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0.15;
+  }
+  68% {
+    opacity: 1;
+  }
+}
+
+@keyframes ridges {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  16% {
+    opacity: 1;
+  }
+  34% {
+    opacity: 0.12;
+  }
+  52% {
+    opacity: 1;
+  }
+  74% {
+    opacity: 0.12;
+  }
+}
+
+@keyframes fall {
+  0%,
+  18%,
+  100% {
+    opacity: 0.05;
+  }
+  28% {
+    opacity: 1;
+  }
+  42% {
+    opacity: 0.05;
+  }
+}
+
+@keyframes ring {
+  0%,
+  70%,
+  100% {
+    opacity: 0.06;
+  }
+  78% {
+    opacity: 1;
+  }
+  90% {
+    opacity: 0.06;
   }
 }
 
@@ -1776,6 +2208,29 @@ kbd {
   }
   50% {
     opacity: 0.12;
+  }
+}
+
+@keyframes star-once {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  38%,
+  62% {
+    opacity: 0.08;
+  }
+}
+
+@keyframes star-hop {
+  0%,
+  14%,
+  100% {
+    opacity: 1;
+  }
+  3%,
+  9% {
+    opacity: 0.08;
   }
 }
 

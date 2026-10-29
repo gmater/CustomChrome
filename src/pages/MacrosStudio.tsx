@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { hidFromCode, hidLabel, macroName, MACRO_KEY_GROUPS, MACRO_MOUSE } from "../lib/keycodes";
+import { loadPrefs } from "../lib/prefs";
 import {
   deleteMacro,
   errorText,
@@ -53,6 +54,7 @@ export default function MacrosStudio({ keyboard }: Props) {
   const [addKey, setAddKey] = useState("k:4");
   const [status, setStatus] = useState<Status>("idle");
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [reminder, setReminder] = useState(false);
   const lastAt = useRef(0);
 
   const keyboardKey = keyboard?.supported ? `${keyboard.connection}:${keyboard.name}` : "";
@@ -142,6 +144,7 @@ export default function MacrosStudio({ keyboard }: Props) {
       setState(s);
       setDirty(false);
       setStatus("saved");
+      if (loadPrefs().macroReminder) setReminder(true);
     } catch (err) {
       setStatus({ error: errorText(err) });
     }
@@ -166,6 +169,7 @@ export default function MacrosStudio({ keyboard }: Props) {
       setDirty(false);
       setConfirmDelete(false);
       setStatus("saved");
+      if (loadPrefs().macroReminder) setReminder(true);
     } catch (err) {
       setStatus({ error: errorText(err) });
     }
@@ -309,6 +313,11 @@ export default function MacrosStudio({ keyboard }: Props) {
               </button>
             </div>
             {recording && <div className="banner rec">Recording: type on your keyboard. Press Stop recording when you're done.</div>}
+            {reminder && !recording && (
+              <div className="banner warn">
+                Switch the keyboard off and on, or unplug it for a moment, so it starts using this macro.
+              </div>
+            )}
 
             <ol className="steps">
               {draft.map((e, i) => (
