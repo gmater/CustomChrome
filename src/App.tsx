@@ -6,21 +6,23 @@ import { accentColor, applyAccent, LAST_PAGE_KEY, loadKeyLook, loadPrefs, type A
 import KeysStudio from "./pages/KeysStudio";
 import LightingStudio from "./pages/LightingStudio";
 import MacrosStudio from "./pages/MacrosStudio";
+import ProfilesStudio from "./pages/ProfilesStudio";
 import ScreenStudio from "./pages/ScreenStudio";
 import SettingsStudio from "./pages/SettingsStudio";
 
 /** Lets the page read the keyboard first, so the check doesn't hold it up. */
-const CHECK_DELAY_MS = 2500;
+const CHECK_DELAY_MS = 8000;
 
-type Page = "screen" | "lighting" | "keys" | "macros" | "settings";
+type Page = "screen" | "lighting" | "keys" | "macros" | "profiles" | "settings";
 
-const PAGES: Page[] = ["screen", "lighting", "keys", "macros", "settings"];
+const PAGES: Page[] = ["screen", "lighting", "keys", "macros", "profiles", "settings"];
 
 const NAV: { id: Page; label: string; ready: boolean; icon: string }[] = [
   { id: "screen", label: "Screen", ready: true, icon: "M3 5h18v12H3zM8 21h8M12 17v4" },
   { id: "lighting", label: "Lighting", ready: true, icon: "M12 3v2M5.6 5.6l1.4 1.4M3 12h2M12 8a4 4 0 0 1 2 7.5V18h-4v-2.5A4 4 0 0 1 12 8zM10 21h4" },
   { id: "keys", label: "Keys", ready: true, icon: "M3 7h18v10H3zM7 11h.01M11 11h.01M15 11h.01M8 14h8" },
   { id: "macros", label: "Macros", ready: true, icon: "M5 4l14 8-14 8z" },
+  { id: "profiles", label: "Profiles", ready: true, icon: "M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5" },
   { id: "settings", label: "Settings", ready: true, icon: "M4 7h16M4 12h16M4 17h10" },
 ];
 
@@ -102,14 +104,23 @@ export default function App() {
   useEffect(() => {
     if (!supportedKey) return;
     let alive = true;
-    const timer = setInterval(() => {
+    let timer = 0;
+    const poll = () => {
       keyboardInfo()
-        .then((next) => alive && setInfo(next))
-        .catch(() => {});
-    }, 30000);
+        .then((next) => {
+          if (!alive) return;
+          setInfo(next);
+          timer = window.setTimeout(poll, 30000);
+        })
+        .catch(() => {
+          if (!alive) return;
+          timer = window.setTimeout(poll, 30000);
+        });
+    };
+    poll();
     return () => {
       alive = false;
-      clearInterval(timer);
+      clearTimeout(timer);
     };
   }, [supportedKey]);
 
@@ -164,6 +175,8 @@ export default function App() {
           <KeysStudio keyboard={keyboard} />
         ) : page === "macros" ? (
           <MacrosStudio keyboard={keyboard} />
+        ) : page === "profiles" ? (
+          <ProfilesStudio keyboard={keyboard} />
         ) : (
           <SettingsStudio keyboard={keyboard} info={info} reportContext={reportContext} prefs={prefs} onPrefs={setPrefs} />
         )}

@@ -17,6 +17,8 @@ pub enum Error {
     InvalidMacro,
     #[error("That setting isn't valid.")]
     InvalidSetting,
+    #[error("{0}")]
+    Profile(String),
     #[error("The keyboard's {0} interface is missing or not what CustomChrome expects.")]
     UnexpectedInterface(&'static str),
     #[error("The keyboard did not reply in time.")]

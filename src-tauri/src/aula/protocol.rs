@@ -94,13 +94,31 @@ pub fn request(cmd: u8, packet_len: usize, data: &[u8]) -> Vec<u8> {
     packet
 }
 
-/// Replies start with 0x55 rather than the request's 0xAA, so only the command byte identifies them.
+/// Drops a leading report id of 0 when the real reply starts at the next byte.
+pub fn reply_body(reply: &[u8]) -> &[u8] {
+    if reply.first() == Some(&0) && reply.get(1) == Some(&REPLY_MAGIC) {
+        &reply[1..]
+    } else {
+        reply
+    }
+}
+
+/// A real answer from the keyboard, not the unprompted status report.
+pub fn is_command_reply(reply: &[u8]) -> bool {
+    let reply = reply_body(reply);
+    reply.len() > 1 && reply[0] == REPLY_MAGIC && reply[1] != CMD_STATUS
+}
 pub fn is_reply_to(cmd: u8, reply: &[u8]) -> bool {
-    reply.len() > 8 && reply[1] == cmd
+    let reply = reply_body(reply);
+    reply.len() > 8 && reply[0] == REPLY_MAGIC && reply[1] == cmd
 }
 
 /// Copies a reply's payload into `target` at the offset the reply declares.
 pub fn merge_reply(reply: &[u8], target: &mut [u8]) {
+    let reply = reply_body(reply);
+    if reply.len() < 5 {
+        return;
+    }
     let len = reply[2] as usize;
     let offset = reply[3] as usize | (reply[4] as usize) << 8;
     for i in 0..len {
@@ -113,6 +131,7 @@ pub fn merge_reply(reply: &[u8], target: &mut [u8]) {
 
 /// True when `reply` is the keyboard's answer to this exact chunk: same command and offset.
 pub fn acknowledges(request: &[u8], reply: &[u8]) -> bool {
+    let reply = reply_body(reply);
     reply.len() > 4 && reply[0] == REPLY_MAGIC && reply[1] == request[1] && reply[3..5] == request[3..5]
 }
 
@@ -637,6 +656,9 @@ mod tests {
             0, 0x06, 0, 0x02, 0x38, 0, 0, 0, 0, 0x68, 0,
         ];
         assert!(is_reply_to(CMD_DEVICE_INFO, &info_reply));
+        let mut prefixed = vec![0u8];
+        prefixed.extend_from_slice(&info_reply);
+        assert!(is_reply_to(CMD_DEVICE_INFO, &prefixed));
         assert_eq!(
             parse_device_info(&info_reply),
             KeyboardInfo { firmware: "1.22".into(), battery: 56, charging: false, max_frames: 104 }

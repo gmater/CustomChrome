@@ -1533,6 +1533,257 @@ kbd {
   opacity: 0.55;
 }
 
+.profile-save {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+
+.profiles {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 20px;
+  margin-top: 20px;
+  align-items: start;
+}
+
+.profile-menu,
+.profile-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profile-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.profile-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: transparent;
+  text-align: left;
+}
+
+.profile-item span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.profile-item small {
+  color: var(--muted);
+}
+
+.profile-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.profile-item.on {
+  border-color: color-mix(in srgb, var(--live) 50%, transparent);
+  background: color-mix(in srgb, var(--live) 12%, transparent);
+}
+
+.manual-profiles {
+  padding: 16px 18px 18px;
+}
+
+.manual-profiles summary {
+  cursor: pointer;
+  font-weight: 650;
+  list-style: none;
+}
+
+.manual-profiles summary::-webkit-details-marker {
+  display: none;
+}
+
+.manual-profiles summary::before {
+  content: "▸ ";
+  color: var(--muted);
+}
+
+.manual-profiles[open] summary::before {
+  content: "▾ ";
+}
+
+.manual-profiles .muted,
+.manual-profiles .profile-save,
+.manual-profiles .profile-list {
+  margin-top: 12px;
+}
+
+.app-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.app-card {
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  max-width: 100%;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.02));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.app-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.app-head span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.app-head strong,
+.app-head small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-head small {
+  color: var(--muted);
+}
+
+.app-actions {
+  display: flex;
+  width: 100%;
+  gap: 6px;
+}
+
+.app-actions .ghost {
+  flex: 1 1 auto;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.app-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.app-icon.small {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.app-icon.letter {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 700;
+  background: linear-gradient(160deg, #3a4158, #232734);
+}
+
+.profile-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.profile-save input,
+.profile-list input,
+.profile-select {
+  padding: 9px 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: 11px;
+  background: #1a1c24;
+  color: var(--text);
+  font: inherit;
+  outline: none;
+}
+
+.profile-save input {
+  width: 180px;
+}
+
+.profile-block,
+.profile-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.profile-pick {
+  padding: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 14px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-list li > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-list small {
+  color: var(--muted);
+}
+
+.profile-list .ghost,
+.profile-pick .ghost {
+  margin-left: 0;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
+.banner .ghost {
+  margin-left: 10px;
+  padding: 6px 10px;
+  font-size: 12.5px;
+}
+
 /* macros */
 .page-header .primary {
   margin: 0;

@@ -1,5 +1,6 @@
 pub mod aula;
 mod diag;
+mod profiles;
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -10,13 +11,13 @@ use tauri::ipc::{InvokeBody, Request};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// One keyboard conversation at a time: interleaved commands would swap each other's replies.
-struct DeviceLock(Mutex<()>);
+pub(crate) struct DeviceLock(pub(crate) Mutex<()>);
 
-/// Long enough to queue behind a lighting write, short enough to fail fast during a screen upload.
-const LOCK_WAIT: Duration = Duration::from_secs(3);
+/// Long enough to wait behind one slow read, without a page giving up and saying the keyboard is busy.
+const LOCK_WAIT: Duration = Duration::from_secs(8);
 
 /// Commands that change the keyboard; their successes are logged too, not just their failures.
-const WRITES: [&str; 9] = [
+const WRITES: [&str; 12] = [
     "write_lighting",
     "assign_key",
     "save_macro",
@@ -26,6 +27,9 @@ const WRITES: [&str; 9] = [
     "write_board",
     "sync_clock",
     "factory_reset",
+    "save_profile",
+    "apply_profile",
+    "save_program",
 ];
 
 async fn exclusive<T: Send + 'static>(
@@ -241,6 +245,103 @@ async fn upload_screen(app: AppHandle, request: Request<'_>) -> Result<u16, Erro
     .await
 }
 
+#[tauri::command]
+async fn apply_profile(app: AppHandle, id: String) -> Result<profiles::ProfileState, Error> {
+    exclusive(app, "apply_profile", move |app| {
+        let bundle = profiles::profile_for_apply(&id)?;
+        let applied = device::apply_snapshot(&bundle.lighting, &bundle.keys, bundle.macros.as_deref())?;
+        diag::info(format!(
+            "profile '{}' applied by hand (keys rewritten: {}, macros rewritten: {})",
+            bundle.name, applied.keys_changed, applied.macros_changed
+        ));
+        let restart = applied.macros_changed && bundle.keys.iter().any(|entry| entry[0] == aula::protocol::MACRO_KIND);
+        profiles::note_applied(&id, None, bundle.macros.is_some(), &bundle.macro_names, restart);
+        let _ = app.emit(
+            "profile-activity",
+            serde_json::json!({
+                "phase": "applied",
+                "profileId": id,
+                "profileName": bundle.name,
+                "exe": "",
+                "macroNames": bundle.macro_names,
+                "hasMacros": bundle.macros.is_some(),
+                "macrosChanged": applied.macros_changed,
+                "restart": restart,
+            }),
+        );
+        Ok(profiles::state())
+    })
+    .await
+}
+
+#[tauri::command]
+fn profile_state() -> profiles::ProfileState {
+    profiles::state()
+}
+
+#[tauri::command]
+async fn save_profile(app: AppHandle, name: String, macro_names: Vec<String>) -> Result<profiles::ProfileState, Error> {
+    exclusive(app, "save_profile", move |_| {
+        let snap = device::read_snapshot()?;
+        profiles::save_current(&name, snap.lighting, snap.keys, snap.macros, macro_names)
+    })
+    .await
+}
+
+#[tauri::command]
+fn rename_profile(id: String, name: String) -> Result<profiles::ProfileState, Error> {
+    profiles::rename(&id, &name)
+}
+
+#[tauri::command]
+fn delete_profile(id: String) -> Result<profiles::ProfileState, Error> {
+    profiles::delete(&id)
+}
+
+#[tauri::command]
+fn set_profile_auto(on: bool) -> Result<profiles::ProfileState, Error> {
+    profiles::set_auto(on)
+}
+
+#[tauri::command]
+fn set_default_profile(id: Option<String>) -> Result<profiles::ProfileState, Error> {
+    profiles::set_default(id)
+}
+
+#[tauri::command]
+fn assign_profile_app(exe: String, label: String, path: String, profile_id: String) -> Result<profiles::ProfileState, Error> {
+    profiles::assign_app(&exe, &label, &path, &profile_id)
+}
+
+#[tauri::command]
+fn unassign_profile_app(exe: String) -> Result<profiles::ProfileState, Error> {
+    profiles::unassign_app(&exe)
+}
+
+#[tauri::command]
+fn open_apps() -> Vec<profiles::OpenApp> {
+    profiles::open_apps()
+}
+
+#[tauri::command]
+async fn save_program(app: AppHandle, exe: String, label: String, path: String, macro_names: Vec<String>) -> Result<profiles::ProfileState, Error> {
+    exclusive(app, "save_program", move |_| {
+        let snap = device::read_snapshot()?;
+        profiles::adopt_program(&exe, &label, &path, snap.lighting, snap.keys, snap.macros, macro_names)
+    })
+    .await
+}
+
+#[tauri::command]
+fn arm_program_capture(macro_names: Vec<String>) -> Result<profiles::ProfileState, Error> {
+    profiles::arm_new(macro_names)
+}
+
+#[tauri::command]
+fn cancel_profile_capture() -> profiles::ProfileState {
+    profiles::disarm()
+}
+
 pub fn run() {
     tauri::Builder::default()
         .manage(DeviceLock(Mutex::new(())))
@@ -266,10 +367,24 @@ pub fn run() {
             factory_reset,
             open_logs,
             log_event,
-            save_report
+            save_report,
+            profile_state,
+            save_profile,
+            rename_profile,
+            delete_profile,
+            apply_profile,
+            set_profile_auto,
+            set_default_profile,
+            assign_profile_app,
+            unassign_profile_app,
+            save_program,
+            open_apps,
+            arm_program_capture,
+            cancel_profile_capture
         ])
-        .setup(|_| {
+        .setup(|app| {
             diag::info(format!("CustomChrome {} started", env!("CARGO_PKG_VERSION")));
+            profiles::spawn(app.handle().clone());
             Ok(())
         })
         .run(tauri::generate_context!())

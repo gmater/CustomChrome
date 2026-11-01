@@ -57,6 +57,12 @@ export default function MacrosStudio({ keyboard }: Props) {
   const [reminder, setReminder] = useState(false);
   const lastAt = useRef(0);
 
+  useEffect(() => {
+    const reload = () => setNames(loadMacroNames());
+    window.addEventListener("macro-names", reload);
+    return () => window.removeEventListener("macro-names", reload);
+  }, []);
+
   const keyboardKey = keyboard?.supported ? `${keyboard.connection}:${keyboard.name}` : "";
 
   useEffect(() => {

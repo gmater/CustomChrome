@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { describe, GROUPS, macroEntry, macroName, MACRO_KIND, MACRO_MODES, sameEntry, type Assignable, type KeyEntry } from "../lib/keycodes";
-import { assignKey, errorText, factoryKeys, loadMacroNames, readMacros, resetKeys, type KeyboardSummary } from "../lib/keyboard";
+import { assignKey, errorText, explainKeyboardWait, factoryKeys, loadMacroNames, readMacros, readWhenFree, resetKeys, type KeyboardSummary } from "../lib/keyboard";
 import { FN_INDEX, KEYBOARD_UNITS_H, KEYBOARD_UNITS_W, KEYS, SCREEN, STRIP } from "../lib/layout";
 
 interface Props {
@@ -25,7 +25,14 @@ export default function KeysStudio({ keyboard }: Props) {
   const [repeats, setRepeats] = useState(3);
   const [summaryOpen, setSummaryOpen] = useState(false);
   const summaryRef = useRef<HTMLDivElement>(null);
-  const macroNames = useMemo(loadMacroNames, [keyboard]);
+  const [namesTick, setNamesTick] = useState(0);
+  const macroNames = useMemo(loadMacroNames, [keyboard, namesTick]);
+
+  useEffect(() => {
+    const reload = () => setNamesTick((n) => n + 1);
+    window.addEventListener("macro-names", reload);
+    return () => window.removeEventListener("macro-names", reload);
+  }, []);
 
   const keyboardKey = keyboard?.supported ? `${keyboard.connection}:${keyboard.name}` : "";
 
@@ -35,14 +42,14 @@ export default function KeysStudio({ keyboard }: Props) {
     setStatus("idle");
     if (!keyboardKey) return;
     let alive = true;
-    Promise.all([readMacros(), factoryKeys()])
+    readWhenFree(() => Promise.all([readMacros(), factoryKeys()]))
       .then(([state, defaults]) => {
         if (!alive) return;
         setFactory(new Map(defaults));
         setMacroCount(state.macros.length);
         setEntries(state.keys);
       })
-      .catch((err) => alive && setLoadError(errorText(err)));
+      .catch((err) => alive && setLoadError(explainKeyboardWait(err)));
     return () => {
       alive = false;
     };
@@ -134,7 +141,7 @@ export default function KeysStudio({ keyboard }: Props) {
   let notice: string | null = null;
   if (!keyboard) notice = "Connect the keyboard with its USB cable or wireless dongle.";
   else if (!keyboard.supported) notice = `"${keyboard.name}" isn't an AULA F99 MAX, so CustomChrome won't change its keys.`;
-  else if (!entries) notice = loadError ? `Couldn't read the keyboard's keys: ${loadError}` : "Reading the keyboard's keys…";
+  else if (!entries) notice = loadError || "Reading the keyboard's keys…";
 
   if (notice || !entries) {
     return (

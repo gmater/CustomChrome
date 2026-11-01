@@ -147,10 +147,19 @@ fn wait_for(device: &HidDevice, accept: impl FnMut(&[u8]) -> bool) -> Result<Vec
 fn wait_within(device: &HidDevice, timeout: Duration, mut accept: impl FnMut(&[u8]) -> bool) -> Result<Vec<u8>> {
     let deadline = Instant::now() + timeout;
     let mut buf = vec![0u8; 8192];
+    let mut noted = false;
     while Instant::now() < deadline {
         let n = device.read_timeout(&mut buf, READ_SLICE_MS)?;
-        if n > 0 && accept(&buf[..n]) {
+        if n == 0 {
+            continue;
+        }
+        if accept(&buf[..n]) {
             return Ok(buf[..n].to_vec());
+        }
+        if !noted {
+            noted = true;
+            let show = n.min(12);
+            diag::warn(format!("keyboard sent {n} bytes that were not the reply: {:02X?}", &buf[..show]));
         }
     }
     Err(Error::Timeout)
@@ -178,7 +187,7 @@ impl Control {
         let reply = self.transact(protocol::CMD_DEVICE_INFO, &[], |r| {
             protocol::is_reply_to(protocol::CMD_DEVICE_INFO, r)
         })?;
-        Ok(protocol::parse_device_info(&reply))
+        Ok(protocol::parse_device_info(protocol::reply_body(&reply)))
     }
 
     fn read_lighting_bytes(&self) -> Result<[u8; LIGHTING_LEN]> {
@@ -375,6 +384,86 @@ fn key_entries(table: &[u8]) -> Vec<KeyEntry> {
     table.chunks_exact(4).map(|c| [c[0], c[1], c[2], c[3]]).collect()
 }
 
+pub struct Snapshot {
+    pub lighting: Lighting,
+    pub keys: Vec<KeyEntry>,
+    pub macros: Vec<Macro>,
+}
+
+pub struct Applied {
+    pub keys_changed: bool,
+    pub macros_changed: bool,
+}
+
+/// Reads the lights, keys and macros together, so a saved profile is one moment on the keyboard.
+pub fn read_snapshot() -> Result<Snapshot> {
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    Ok(Snapshot {
+        lighting: Lighting::from_bytes(&control.read_lighting_bytes()?),
+        keys: key_entries(&control.read_key_table()?),
+        macros: control.read_macros()?,
+    })
+}
+
+/// Puts a saved profile on the keyboard. `macros: None` leaves the recordings already on the keyboard.
+/// Recordings are written before the keys that play them. The key table is rewritten only when a key differs.
+pub fn apply_snapshot(lighting: &Lighting, keys: &[KeyEntry], macros: Option<&[Macro]>) -> Result<Applied> {
+    if keys.len() != protocol::KEY_TABLE_LEN / 4 {
+        return Err(Error::Profile("This profile's keys are incomplete.".into()));
+    }
+    let api = HidApi::new()?;
+    let control = open_control(&api, connected(&api)?)?;
+    let current_macros = control.read_macros()?;
+    let macro_count = macros.map(|m| m.len()).unwrap_or(current_macros.len());
+    if let Some(macros) = macros {
+        if protocol::encode_macros(macros).is_none() {
+            return Err(Error::Profile("A macro in this profile is empty, too big, or has a step the keyboard can't play.".into()));
+        }
+    }
+    let mut prepared = Vec::with_capacity(keys.len());
+    for (i, entry) in keys.iter().enumerate() {
+        let entry = protocol::canonical_entry(*entry);
+        if protocol::is_remappable(i as u8) {
+            if !protocol::is_valid_entry(&entry) {
+                return Err(Error::Profile("This profile has a key the keyboard can't use.".into()));
+            }
+            if entry[0] == protocol::MACRO_KIND && entry[1] as usize >= macro_count {
+                return Err(Error::Profile("A key in this profile plays a macro that isn't in the profile.".into()));
+            }
+        }
+        prepared.push(entry);
+    }
+
+    let macros_changed = macros.is_some_and(|macros| macros != current_macros.as_slice());
+    if macros_changed {
+        control.write_macros(macros.unwrap())?;
+    }
+
+    let current_light = control.read_lighting_bytes()?;
+    let next_light = lighting.apply_to(&current_light);
+    control.transact(protocol::CMD_WRITE_LIGHTING, &next_light, |r| {
+        r.len() > 1 && protocol::is_command_reply(r)
+    })?;
+
+    let mut table = control.read_key_table()?;
+    let mut keys_changed = false;
+    for (i, entry) in prepared.iter().enumerate() {
+        if !protocol::is_remappable(i as u8) {
+            continue;
+        }
+        let at = i * 4;
+        if table[at..at + 4] != entry[..] {
+            table[at..at + 4].copy_from_slice(entry);
+            keys_changed = true;
+        }
+    }
+    if keys_changed {
+        control.write_key_table(&table)?;
+    }
+    Ok(Applied { keys_changed, macros_changed })
+}
+
 pub fn read_keys() -> Result<Vec<KeyEntry>> {
     let api = HidApi::new()?;
     let control = open_control(&api, connected(&api)?)?;
@@ -428,7 +517,7 @@ pub fn write_board(settings: BoardSettings) -> Result<BoardSettings> {
     let mut head = [0u8; BOARD_WRITE_LEN];
     head.copy_from_slice(&current[..BOARD_WRITE_LEN]);
     let next = settings.apply_to(&head);
-    control.transact(protocol::CMD_WRITE_BOARD, &next, |r| r.len() > 1 && r[1] != protocol::CMD_STATUS)?;
+    control.transact(protocol::CMD_WRITE_BOARD, &next, protocol::is_command_reply)?;
     let back = control.read_board_bytes().unwrap_or(current);
     if back[3] != next[3] || back[7] != next[7] {
         diag::warn(format!(
@@ -443,7 +532,7 @@ pub fn sync_clock(time: &ClockTime) -> Result<()> {
     let payload = protocol::clock_payload(time).ok_or(Error::InvalidSetting)?;
     let api = HidApi::new()?;
     let control = open_control(&api, connected(&api)?)?;
-    control.transact(protocol::CMD_SET_CLOCK, &payload, |r| r.len() > 1 && r[1] != protocol::CMD_STATUS)?;
+    control.transact(protocol::CMD_SET_CLOCK, &payload, protocol::is_command_reply)?;
     Ok(())
 }
 
@@ -455,7 +544,7 @@ pub fn factory_reset() -> Result<()> {
     let packet = protocol::direct_command(protocol::CMD_FACTORY_RESET, control.packet_len, &[0xFF, 0, 0, 0]);
     control.drain()?;
     write_report(&control.device, &packet)?;
-    match wait_within(&control.device, CHUNK_TIMEOUT, |r| r.len() > 1 && r[1] != protocol::CMD_STATUS) {
+    match wait_within(&control.device, CHUNK_TIMEOUT, protocol::is_command_reply) {
         Ok(_) => diag::info("factory reset acknowledged"),
         Err(Error::Timeout) => diag::warn("factory reset sent, no acknowledgement"),
         Err(e) => return Err(e),
@@ -483,7 +572,7 @@ pub fn write_lighting(lighting: &Lighting) -> Result<Lighting> {
     }
     let bytes = lighting.apply_to(&current);
     control.transact(protocol::CMD_WRITE_LIGHTING, &bytes, |r| {
-        r.len() > 1 && r[1] != protocol::CMD_STATUS
+        r.len() > 1 && protocol::is_command_reply(r)
     })?;
     Ok(Lighting::from_bytes(&bytes))
 }

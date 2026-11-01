@@ -140,3 +140,27 @@ export async function uploadScreen(
 export function errorText(err: unknown): string {
   return typeof err === "string" ? err : err instanceof Error ? err.message : "Something went wrong.";
 }
+
+/** Tries again when another keyboard task still has the connection, instead of showing "busy" immediately. */
+export async function readWhenFree<T>(read: () => Promise<T>): Promise<T> {
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await read();
+    } catch (err) {
+      last = err;
+      const text = errorText(err);
+      if (attempt === 2 || !text.includes("busy")) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 700));
+    }
+  }
+  throw last;
+}
+
+export function explainKeyboardWait(err: unknown): string {
+  const text = errorText(err);
+  if (text.includes("busy") || text.includes("did not reply")) {
+    return "The keyboard didn't answer. If it was asleep, press a key on it, then open this page again.";
+  }
+  return text;
+}

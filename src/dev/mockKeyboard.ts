@@ -23,6 +23,18 @@ export function installMockKeyboard() {
   let macros: Ev[][] = [[...tap(0x0b), ...tap(0x08), ...tap(0x0f), ...tap(0x0f), ...tap(0x12)]];
   localStorage.setItem("macro-names", JSON.stringify(["Type hello"]));
   keys[33] = [6, 0, 1, 2];
+  const profiles: {
+    auto: boolean;
+    defaultProfile: string | null;
+    profiles: { id: string; name: string }[];
+    apps: { exe: string; label: string; profileId: string; path: string; icon: string }[];
+    appliedId: string | null;
+    appliedExe: string | null;
+    armedId: string | null;
+    hasMacros: boolean;
+    macroNames: string[];
+    restartSuggested: boolean;
+  } = { auto: false, defaultProfile: null, profiles: [], apps: [], appliedId: null, appliedExe: null, armedId: null, hasMacros: false, macroNames: [], restartSuggested: false };
   mockIPC((cmd, args) => {
     switch (cmd) {
       case "read_keys":
@@ -77,6 +89,72 @@ export function installMockKeyboard() {
         return later(null);
       case "open_logs":
         return null;
+      case "profile_state":
+        return profiles;
+      case "save_profile": {
+        const { name } = args as { name: string };
+        const existing = profiles.profiles.find((p) => p.name.toLowerCase() === name.toLowerCase());
+        if (existing) existing.name = name;
+        else profiles.profiles.push({ id: `p${profiles.profiles.length + 1}`, name });
+        return { ...profiles, profiles: profiles.profiles.slice() };
+      }
+      case "rename_profile": {
+        const { id, name } = args as { id: string; name: string };
+        profiles.profiles = profiles.profiles.map((p) => (p.id === id ? { ...p, name } : p));
+        return { ...profiles };
+      }
+      case "delete_profile": {
+        const { id } = args as { id: string };
+        profiles.profiles = profiles.profiles.filter((p) => p.id !== id);
+        profiles.apps = profiles.apps.filter((a) => a.profileId !== id);
+        if (profiles.defaultProfile === id) profiles.defaultProfile = null;
+        return { ...profiles };
+      }
+      case "apply_profile": {
+        const { id } = args as { id: string };
+        profiles.appliedId = id;
+        return { ...profiles };
+      }
+      case "set_profile_auto": {
+        profiles.auto = (args as { on: boolean }).on;
+        return { ...profiles };
+      }
+      case "set_default_profile": {
+        profiles.defaultProfile = (args as { id: string | null }).id;
+        return { ...profiles };
+      }
+      case "assign_profile_app": {
+        const link = args as { exe: string; label: string; path?: string; profileId: string };
+        const next = { exe: link.exe, label: link.label, path: link.path ?? "", icon: "", profileId: link.profileId };
+        profiles.apps = profiles.apps.filter((a) => a.exe !== link.exe).concat(next);
+        return { ...profiles, apps: profiles.apps.slice() };
+      }
+      case "unassign_profile_app": {
+        const { exe } = args as { exe: string };
+        profiles.apps = profiles.apps.filter((a) => a.exe !== exe);
+        return { ...profiles };
+      }
+      case "open_apps":
+        return [
+          { exe: "chrome.exe", title: "Google Chrome", path: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe", icon: "" },
+          { exe: "VALORANT.exe", title: "VALORANT", path: "C:\\Games\\VALORANT.exe", icon: "" },
+        ];
+      case "arm_program_capture":
+        profiles.armedId = "*new";
+        return { ...profiles };
+      case "save_program": {
+        const link = args as { exe: string; label: string; path?: string };
+        const existing = profiles.apps.find((app) => app.exe === link.exe);
+        if (!existing) {
+          const id = `p${profiles.profiles.length + 1}`;
+          profiles.profiles.push({ id, name: link.label });
+          profiles.apps.push({ exe: link.exe, label: link.label, path: link.path ?? "", icon: "", profileId: id });
+        }
+        return { ...profiles, profiles: profiles.profiles.slice(), apps: profiles.apps.slice() };
+      }
+      case "cancel_profile_capture":
+        profiles.armedId = null;
+        return { ...profiles };
       case "write_lighting":
         lighting = (args as { lighting: typeof lighting }).lighting;
         return new Promise((resolve) => setTimeout(() => resolve(lighting), 150));

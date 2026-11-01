@@ -4,7 +4,7 @@ CustomChrome is an offline app for the **AULA F99 MAX**. It changes the screen, 
 
 There is no account, no telemetry, and no updater. The app does not download or flash firmware. Copy `CustomChrome.exe` to a Windows 10 or Windows 11 PC and open it. Rust, Node, and Tauri are not needed to run it.
 
-Version **0.1.0** is the beta. The keyboard it is written for is the F99 MAX on its current firmware (tested on 1.22).
+Version **0.1.1** is the beta. The keyboard it is written for is the F99 MAX on its current firmware (tested on 1.22).
 
 ## Requirements
 
@@ -24,6 +24,8 @@ What stays where:
 | Key remaps | Battery icon style |
 | Macros | Macro names |
 | Screen clock and wireless sleep | The reminder after saving a macro |
+
+Program setups and manual profiles are saved in `profiles.json` next to the exe.
 
 Unplugging the keyboard does not clear remaps, macros, lighting, or the screen picture. Deleting the exe does not clear them either. App choices above are lost if that Windows account's app data for CustomChrome is cleared.
 
@@ -96,6 +98,21 @@ Macros are recorded, edited, and stored on the keyboard. Names are remembered by
 - From the Keys page, a macro can play once, repeat a set number of times, or keep going until the key is pressed again.
 - After a save or delete, the app suggests restarting the keyboard so it plays the new recording. That reminder can be turned off in Settings.
 
+## Profiles
+
+A program and a manual profile are different.
+
+**Programs** each keep their own lights, keys, and macros. The list shows the program's own Windows icon.
+
+- **Add a program** saves what the keyboard is doing right now as that program's setup. **I'll switch to it** does the same for the next program you click.
+- **Use now** puts that setup on the keyboard. **Update** replaces it with the keyboard's current lights, keys, and macros. **Remove** deletes that program's setup.
+- **Switch by itself** applies a program's setup when that program is the window in front. This window does not trigger a switch. If the keys differ, typing can pause for a moment while they are written.
+- **Every other program** can use a manual profile, or leave the keyboard as it is.
+
+**Manual profiles** are tucked under the program list. They are not tied to a program. Save the current keyboard under a name, then turn that setup on yourself with **Use now**.
+
+The screen picture is not part of a profile.
+
 ## Settings
 
 **Keyboard**
@@ -136,6 +153,12 @@ When a supported keyboard connects, CustomChrome reads it and checks for damage:
 A banner explains what it found and offers **Fix it**. Writes to the keyboard are acknowledged and read back, so a missed reply is retried instead of leaving a half-written key table.
 
 Logs are saved beside the exe as `logs\customchrome.log`. Reports are saved in `logs\reports\`.
+
+## 0.1.1
+
+- Program setups and manual profiles, with each program's own icon.
+- Keyboard replies are still accepted when Windows adds an extra byte in front of them.
+- Pages wait their turn instead of reporting that the keyboard is busy while another read is still going.
 
 ## Not in this beta
 

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 import ColorWheel from "../components/ColorWheel";
 import KeyboardPreview, { MiniPreview } from "../components/KeyboardPreview";
 import { EFFECT_OFF, EFFECTS, fromHex, LEVEL_MAX, SWATCHES, toHex } from "../lib/effects";
-import { errorText, readLighting, writeLighting, type KeyboardSummary, type Lighting } from "../lib/keyboard";
+import { errorText, explainKeyboardWait, readLighting, readWhenFree, writeLighting, type KeyboardSummary, type Lighting } from "../lib/keyboard";
 
 interface Props {
   keyboard: KeyboardSummary | null;
@@ -59,7 +59,7 @@ export default function LightingStudio({ keyboard }: Props) {
     setSave("idle");
     if (!keyboardKey) return;
     let alive = true;
-    readLighting()
+    readWhenFree(readLighting)
       .then((read) => {
         if (!alive) return;
         const l = { ...read, ...rememberedColor() };
@@ -67,7 +67,7 @@ export default function LightingStudio({ keyboard }: Props) {
         latest.current = l;
         setLighting(l);
       })
-      .catch((err) => alive && setLoadError(errorText(err)));
+      .catch((err) => alive && setLoadError(explainKeyboardWait(err)));
     return () => {
       alive = false;
     };
@@ -140,7 +140,7 @@ export default function LightingStudio({ keyboard }: Props) {
   let notice: string | null = null;
   if (!keyboard) notice = "Connect the keyboard with its USB cable or wireless dongle.";
   else if (!keyboard.supported) notice = `"${keyboard.name}" isn't an AULA F99 MAX, so CustomChrome won't change its lighting.`;
-  else if (!lighting) notice = loadError ? `Couldn't read the keyboard's lighting: ${loadError}` : "Reading the keyboard's lighting…";
+  else if (!lighting) notice = loadError || "Reading the keyboard's lighting…";
 
   if (notice || !lighting) {
     return (
